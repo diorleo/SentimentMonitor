@@ -312,7 +312,7 @@ def seed_competitor_mock_data():
 # Scheduled task: weekly data refresh
 # ---------------------------------------------------------------------------
 def weekly_refresh():
-    """Called every Monday at 01:00 to check/refresh data."""
+    """Called every Monday at 09:00 to check/refresh data."""
     with get_db() as conn:
         latest = conn.execute(
             "SELECT week_end FROM weekly_reports ORDER BY week_end DESC LIMIT 1"
@@ -578,7 +578,7 @@ seed_mock_data()
 seed_competitor_mock_data()
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(weekly_refresh, "cron", day_of_week="mon", hour=1, minute=0,
+scheduler.add_job(weekly_refresh, "cron", day_of_week="mon", hour=9, minute=0,
                   id="weekly_refresh")
 scheduler.start()
 
