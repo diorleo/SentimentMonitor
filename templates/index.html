@@ -115,6 +115,8 @@
     border-radius: 12px; padding: 22px;
   }
   .panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 7px; }
+  .chart-wrap { position: relative; height: 260px; max-height: 260px; }
+  .chart-wrap canvas { width: 100% !important; height: 100% !important; }
 
   /* ---- Topic Cards ---- */
   .topic-list { display: flex; flex-direction: column; gap: 10px; }
@@ -315,7 +317,7 @@
   </div>
 
   <div class="panel-grid">
-    <div class="panel"><h3>📈 提及量趋势</h3><canvas id="trendChart" height="220"></canvas></div>
+    <div class="panel"><h3>📈 提及量趋势</h3><div class="chart-wrap"><canvas id="trendChart"></canvas></div></div>
     <div class="panel"><h3>😊 情绪分布</h3><div style="max-width:240px;margin:0 auto;"><canvas id="sentimentChart" height="220"></canvas></div></div>
   </div>
 
