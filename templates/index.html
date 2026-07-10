@@ -437,11 +437,13 @@ function renderMozaReport(report) {
 }
 
 function updateTrendChart() {
-  const labels = reports.slice().reverse().map(r => (r.week_start || "").slice(5) + "~" + (r.week_end || "").slice(5));
-  const data = reports.slice().reverse().map(r => r.mention_count);
-  if (trendChart) trendChart.destroy();
-  const ctx = document.getElementById("trendChart").getContext("2d");
-  trendChart = new Chart(ctx, {
+  if (typeof Chart === "undefined") { console.warn("Chart.js not loaded"); return; }
+  try {
+    const labels = reports.slice().reverse().map(r => (r.week_start || "").slice(5) + "~" + (r.week_end || "").slice(5));
+    const data = reports.slice().reverse().map(r => r.mention_count);
+    if (trendChart) trendChart.destroy();
+    const ctx = document.getElementById("trendChart").getContext("2d");
+    trendChart = new Chart(ctx, {
     type: "line", data: { labels, datasets: [{ label: "提及量", data, borderColor: "#00c2ff", backgroundColor: "rgba(0,194,255,0.08)", borderWidth: 2.5, fill: true, tension: 0.4, pointRadius: 5, pointBackgroundColor: "#00c2ff", pointBorderColor: "#1a1d2e", pointBorderWidth: 2, pointHoverRadius: 7 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -450,15 +452,23 @@ function updateTrendChart() {
       interaction: { mode: "index", intersect: false }
     }
   });
+  } catch (e) {
+    console.error("Trend chart render error:", e);
+  }
 }
 
 function updateSentimentChart(r) {
-  if (sentimentChart) sentimentChart.destroy();
-  const ctx = document.getElementById("sentimentChart").getContext("2d");
-  sentimentChart = new Chart(ctx, {
-    type: "doughnut", data: { labels: ["正面", "中性", "负面"], datasets: [{ data: [r.positive_pct || 0, r.neutral_pct || 0, r.negative_pct || 0], backgroundColor: ["#00c896", "#5c6bc0", "#ff5252"], borderColor: "#1a1d2e", borderWidth: 3 }] },
-    options: { responsive: true, maintainAspectRatio: false, cutout: "65%", plugins: { legend: { position: "bottom", labels: { color: "#8890b5", padding: 16, font: { size: 11 }, usePointStyle: true } }, tooltip: { backgroundColor: "#1a1d2e", titleColor: "#e4e6f0", bodyColor: "#e4e6f0", borderColor: "#2a2f45", borderWidth: 1, padding: 10, callbacks: { label: (ctx) => " " + ctx.label + ": " + ctx.raw + "%" } } } }
-  });
+  if (typeof Chart === "undefined") { console.warn("Chart.js not loaded"); return; }
+  try {
+    if (sentimentChart) sentimentChart.destroy();
+    const ctx = document.getElementById("sentimentChart").getContext("2d");
+    sentimentChart = new Chart(ctx, {
+      type: "doughnut", data: { labels: ["正面", "中性", "负面"], datasets: [{ data: [r.positive_pct || 0, r.neutral_pct || 0, r.negative_pct || 0], backgroundColor: ["#00c896", "#5c6bc0", "#ff5252"], borderColor: "#1a1d2e", borderWidth: 3 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: "65%", plugins: { legend: { position: "bottom", labels: { color: "#8890b5", padding: 16, font: { size: 11 }, usePointStyle: true } }, tooltip: { backgroundColor: "#1a1d2e", titleColor: "#e4e6f0", bodyColor: "#e4e6f0", borderColor: "#2a2f45", borderWidth: 1, padding: 10, callbacks: { label: (ctx) => " " + ctx.label + ": " + ctx.raw + "%" } } } }
+    });
+  } catch (e) {
+    console.error("Sentiment chart render error:", e);
+  }
 }
 
 // ===================== COMPETITOR Tab =====================
@@ -549,8 +559,10 @@ function renderCompetitors() {
 
 // ===================== Init =====================
 async function init() {
+  let hasError = false;
+
+  // --- MOZA reports ---
   try {
-    // MOZA reports
     const rawRes = await fetch("/api/reports");
     const rawReports = await rawRes.json();
     reports = [];
@@ -560,19 +572,30 @@ async function init() {
       reports.push({ ...rr, topics: detail.topics || [], risks: detail.risks || [], sentiments: detail.sentiments || [], actions: detail.actions || [] });
     }
     if (reports.length > 0) renderMozaReport(reports[0]);
+  } catch (e) {
+    console.error("MOZA data load error:", e);
+    $("#summaryText").textContent = "MOZA 舆情数据加载失败，请稍后刷新。";
+    hasError = true;
+  }
 
-    // Competitors
+  // --- Competitors ---
+  try {
     const compRes = await fetch("/api/competitors");
     compData = await compRes.json();
     const sumRes = await fetch("/api/competitors/summary");
     const sumData = await sumRes.json();
     compSummary = sumData.summary || "";
     if (compData.length > 0) renderCompetitors();
-
-    $("#updateTime").textContent = new Date().toLocaleString("zh-CN", { hour12: false });
   } catch (e) {
-    console.error("Init error:", e);
-    $("#summaryText").textContent = "数据加载失败，请检查后端服务。";
+    console.error("Competitor data load error:", e);
+    $("#compSummaryText").textContent = "竞品数据加载失败，请稍后刷新。";
+    hasError = true;
+  }
+
+  $("#updateTime").textContent = new Date().toLocaleString("zh-CN", { hour12: false });
+  if (hasError) {
+    const dt = $("#updateTime");
+    dt.textContent += " · ⚠️ 部分数据加载失败";
   }
 }
 
