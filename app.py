@@ -146,62 +146,6 @@ def seed_mock_data():
     
     mock_weeks = [
         {
-            "week_start": (last_monday - timedelta(weeks=3)).strftime("%Y-%m-%d"),
-            "week_end": (last_monday - timedelta(days=1) - timedelta(weeks=2)).strftime("%Y-%m-%d"),
-            "overall_summary": "本周MOZA品牌整体舆情平稳，Reddit社区关于R5方向盘的讨论热度上升，主要集中在力反馈手感的正面评价。社交媒体提及量较前周增长8%。",
-            "mention_count": 1240,
-            "mention_change": 8.0,
-            "positive_pct": 62.0,
-            "neutral_pct": 28.0,
-            "negative_pct": 10.0,
-            "topics": [
-                {"rank": 1, "topic": "MOZA R5 力反馈体验", "summary": "Reddit simracing社区多位用户称赞R5的DD直驱反馈细腻，性价比突出"},
-                {"rank": 2, "topic": "MOZA 踏板模组升级", "summary": "Twitter和YouTube上有消息称MOZA即将发布新型负载踏板，用户期待值高"},
-                {"rank": 3, "topic": "固件更新兼容性", "summary": "部分用户反馈最新固件与某些第三方软件存在兼容问题，官方已回应在修复中"},
-            ],
-            "risks": [
-                {"level": "yellow", "content": "固件兼容性问题在小范围讨论，需关注后续发展", "source": "Reddit r/moza"},
-            ],
-            "sentiments": [
-                {"sentiment": "positive", "viewpoint": "R5是目前入门级DD最佳选择之一", "source": "Reddit"},
-                {"sentiment": "positive", "viewpoint": "方向盘材质和做工远超同价位竞品", "source": "YouTube评论"},
-                {"sentiment": "negative", "viewpoint": "售后响应速度有待提升，等了三天才回复", "source": "Facebook用户群"},
-            ],
-            "actions": [
-                "持续关注固件兼容性反馈，建议技术团队优先修复高优先级Bug",
-                "针对R5正面口碑，可在社交媒体进行用户证言二次传播",
-            ],
-        },
-        {
-            "week_start": (last_monday - timedelta(weeks=2)).strftime("%Y-%m-%d"),
-            "week_end": (last_monday - timedelta(days=1) - timedelta(weeks=1)).strftime("%Y-%m-%d"),
-            "overall_summary": "本周MOZA舆情热度显著上升，主要驱动因素为SimRacing Expo展会上MOZA新品预告引发的讨论。整体情绪偏正面，但关于发货延迟的负面声音也有所增加。",
-            "mention_count": 1580,
-            "mention_change": 27.4,
-            "positive_pct": 68.0,
-            "neutral_pct": 20.0,
-            "negative_pct": 12.0,
-            "topics": [
-                {"rank": 1, "topic": "SimRacing Expo 新品预告", "summary": "MOZA在展会亮相的新品引发热议，疑似新款直驱基座和F1方向盘"},
-                {"rank": 2, "topic": "发货延迟投诉", "summary": "Instagram和Twitter上部分用户抱怨预订产品发货延迟，客服沟通不足"},
-                {"rank": 3, "topic": "MOZA与Fanatec对比", "summary": "多个YouTuber发布MOZA vs Fanatec对比评测，MOZA生态性价比获认可"},
-                {"rank": 4, "topic": "Pithouse软件更新", "summary": "最新版Pithouse增加了多项设置选项，社区反馈积极"},
-            ],
-            "risks": [
-                {"level": "yellow", "content": "发货延迟投诉有所增加，建议加强物流信息透明度", "source": "Twitter/Instagram"},
-                {"level": "green", "content": "新品预告热度高，需做好上市前的舆情引导准备", "source": "多渠道"},
-            ],
-            "sentiments": [
-                {"sentiment": "positive", "viewpoint": "MOZA生态圈扩展速度惊人，已成为Fanatec最有力挑战者", "source": "YouTube评测"},
-                {"sentiment": "negative", "viewpoint": "预定了两个月还没收到货，官方渠道信息不透明", "source": "Twitter"},
-                {"sentiment": "negative", "viewpoint": "客服机器人回复敷衍，没有解决实际问题", "source": "Instagram DM"},
-            ],
-            "actions": [
-                "建议物流部门在官网和社媒主动发布发货进度公告",
-                "新品上市前准备FAQ和舆情应对预案",
-            ],
-        },
-        {
             "week_start": (last_monday - timedelta(weeks=1)).strftime("%Y-%m-%d"),
             "week_end": (last_monday - timedelta(days=1)).strftime("%Y-%m-%d"),
             "overall_summary": "本周MOZA舆情整体热度小幅回落但保持稳定。产品质量口碑持续走强，但关于售后服务的负面讨论需要引起重视。Facebook用户群中出现大规模讨论，主要集中在配件兼容性和软件体验上。",
