@@ -1,7 +1,7 @@
 services:
   - type: web
     name: moza-sentiment-monitor
-    env: python
+    runtime: python
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
