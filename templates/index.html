@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOZA 品牌舆情 & 竞品监控</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --card-hover: #222640;
+    --border: #2a2f45;
+    --text: #e4e6f0;
+    --text-muted: #8890b5;
+    --accent: #00c2ff;
+    --green: #00e676;
+    --yellow: #ffd600;
+    --red: #ff3d5a;
+    --positive: #00c896;
+    --neutral: #5c6bc0;
+    --negative: #ff5252;
+    --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ---- Header ---- */
+  .header {
+    background: linear-gradient(135deg, #1a1d2e 0%, #0d1525 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    width: 40px; height: 40px;
+    background: var(--accent); border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 18px; color: #000;
+  }
+  .header-title h1 { font-size: 20px; font-weight: 700; }
+  .header-title p { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .badge {
+    background: var(--card); border: 1px solid var(--border);
+    padding: 5px 12px; border-radius: 16px; font-size: 11px;
+    color: var(--text-muted); display: flex; align-items: center; gap: 5px;
+  }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+  /* ---- Tab Nav ---- */
+  .tab-nav {
+    display: flex; gap: 0;
+    border-bottom: 2px solid var(--border);
+    background: var(--card);
+  }
+  .tab-btn {
+    flex: 1; max-width: 280px;
+    padding: 14px 24px; cursor: pointer;
+    font-size: 14px; font-weight: 600; color: var(--text-muted);
+    border: none; background: transparent;
+    text-align: center; transition: all 0.2s;
+    position: relative; letter-spacing: 0.5px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active {
+    color: var(--accent);
+    box-shadow: inset 0 -3px 0 var(--accent);
+  }
+  .tab-btn .tab-icon { margin-right: 6px; }
+
+  /* ---- Layout ---- */
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ---- KPI Cards ---- */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .kpi-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 22px; transition: all 0.2s;
+  }
+  .kpi-card:hover { background: var(--card-hover); box-shadow: var(--shadow); }
+  .kpi-card .kpi-label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+  .kpi-card .kpi-value { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+  .kpi-card .kpi-change { font-size: 12px; margin-top: 3px; display: flex; align-items: center; gap: 3px; }
+  .kpi-change.up { color: var(--green); }
+  .kpi-change.down { color: var(--red); }
+  .kpi-change.neutral { color: var(--text-muted); }
+
+  /* ---- Panels ---- */
+  .panel-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px;
+  }
+  .panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 7px; }
+
+  /* ---- Topic Cards ---- */
+  .topic-list { display: flex; flex-direction: column; gap: 10px; }
+  .topic-card {
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 15px; transition: 0.2s;
+  }
+  .topic-rank {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 6px; font-size: 11px;
+    font-weight: 700; margin-right: 7px; vertical-align: middle;
+  }
+  .topic-rank.r1 { background: linear-gradient(135deg, #ffd600, #ff8f00); color: #000; }
+  .topic-rank.r2 { background: linear-gradient(135deg, #90a4ae, #607d8b); color: #fff; }
+  .topic-rank.r3 { background: linear-gradient(135deg, #8d6e63, #6d4c41); color: #fff; }
+  .topic-rank.rt { background: var(--border); color: var(--text-muted); }
+  .topic-title { font-weight: 600; font-size: 13px; }
+  .topic-summary { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+
+  /* ---- Risk Alerts ---- */
+  .risk-grid { display: flex; flex-direction: column; gap: 8px; }
+  .risk-item {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 10px 13px; border-radius: 10px; border: 1px solid;
+    font-size: 12px; line-height: 1.5;
+  }
+  .risk-item.critical { background: rgba(255,61,90,0.1); border-color: rgba(255,61,90,0.3); }
+  .risk-item.warning { background: rgba(255,214,0,0.08); border-color: rgba(255,214,0,0.25); }
+  .risk-item.info { background: rgba(0,230,118,0.08); border-color: rgba(0,230,118,0.2); }
+  .risk-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 3px; flex-shrink: 0; }
+  .risk-dot.critical { background: var(--red); }
+  .risk-dot.warning { background: var(--yellow); }
+  .risk-dot.info { background: var(--green); }
+  .risk-source { color: var(--text-muted); font-size: 10px; margin-top: 1px; }
+
+  /* ---- Sentiment / Actions ---- */
+  .sentiment-list, .action-list { display: flex; flex-direction: column; gap: 8px; }
+  .sentiment-item {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 10px 13px; border-radius: 10px;
+    border: 1px solid var(--border); font-size: 12px;
+    background: rgba(255,255,255,0.02);
+  }
+  .sentiment-emoji { font-size: 16px; flex-shrink: 0; }
+  .sentiment-source { color: var(--text-muted); font-size: 10px; }
+
+  .action-item {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 10px 13px; border-radius: 10px;
+    border: 1px solid rgba(0,194,255,0.2); background: rgba(0,194,255,0.05);
+    font-size: 13px;
+  }
+  .action-num {
+    flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent); color: #000; font-size: 10px;
+    font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ---- Summary Banner ---- */
+  .summary-banner {
+    background: linear-gradient(135deg, rgba(0,194,255,0.08), rgba(0,194,255,0.02));
+    border: 1px solid rgba(0,194,255,0.2); border-radius: 12px;
+    padding: 18px 22px; margin-bottom: 20px;
+  }
+  .summary-banner h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+  .summary-banner p { font-size: 13px; color: var(--text-muted); line-height: 1.7; }
+
+  /* ====== COMPETITOR TAB ====== */
+  .comp-summary-banner {
+    background: linear-gradient(135deg, rgba(124,77,255,0.08), rgba(124,77,255,0.02));
+    border: 1px solid rgba(124,77,255,0.2); border-radius: 12px;
+    padding: 18px 22px; margin-bottom: 20px;
+  }
+  .comp-summary-banner h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+  .comp-summary-banner p { font-size: 13px; color: var(--text-muted); line-height: 1.7; }
+
+  .comp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .comp-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; transition: 0.2s;
+  }
+  .comp-card:hover { box-shadow: var(--shadow); }
+  .comp-header {
+    padding: 14px 20px; display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .comp-color {
+    width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
+  }
+  .comp-name { font-weight: 700; font-size: 15px; flex: 1; }
+  .comp-stats { font-size: 11px; color: var(--text-muted); }
+  .comp-stats span { margin: 0 2px; }
+  .comp-stats .st-p { color: var(--positive); }
+  .comp-stats .st-n { color: var(--neutral); }
+  .comp-stats .st-e { color: var(--negative); }
+  .comp-body { padding: 10px 20px 16px; }
+  .comp-section { margin-bottom: 12px; }
+  .comp-section:last-child { margin-bottom: 0; }
+  .comp-section-title {
+    font-size: 11px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px; display: flex; align-items: center; gap: 5px;
+  }
+  .comp-section-title .cat-icon { font-size: 13px; }
+  .comp-item {
+    display: flex; align-items: flex-start; gap: 7px;
+    padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 12px; line-height: 1.5;
+  }
+  .comp-item:last-child { border-bottom: none; }
+  .comp-sent-dot {
+    width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex-shrink: 0;
+  }
+  .comp-sent-dot.s-p { background: var(--positive); }
+  .comp-sent-dot.s-n { background: var(--neutral); }
+  .comp-sent-dot.s-e { background: var(--negative); }
+  .comp-item-content { flex: 1; }
+  .comp-item-source { color: var(--text-muted); font-size: 10px; margin-top: 1px; }
+
+  /* ---- Responsive ---- */
+  @media (max-width: 900px) {
+    .panel-grid { grid-template-columns: 1fr; }
+    .comp-grid { grid-template-columns: 1fr; }
+    .container { padding: 14px; }
+    .header { padding: 14px 18px; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .kpi-card .kpi-value { font-size: 22px; }
+  }
+  @media (max-width: 480px) {
+    .kpi-grid { grid-template-columns: 1fr; }
+    .tab-btn { padding: 12px 14px; font-size: 13px; }
+  }
+
+  .footer {
+    text-align: center; padding: 20px; font-size: 11px; color: var(--text-muted);
+    border-top: 1px solid var(--border); margin-top: 28px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ====== HEADER ====== -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">M</div>
+    <div class="header-title">
+      <h1>MOZA 品牌舆情 & 竞品监控</h1>
+      <p>每周自动更新 · 多渠道数据聚合</p>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="badge"><span class="dot"></span> 系统运行中 · 下次更新: 周一 00:00 CST</div>
+    <div class="badge">更新于 <span id="updateTime">--</span></div>
+  </div>
+</header>
+
+<!-- ====== TAB NAV ====== -->
+<div class="tab-nav">
+  <button class="tab-btn active" data-tab="moza"><span class="tab-icon">📊</span> MOZA 品牌舆情</button>
+  <button class="tab-btn" data-tab="competitor"><span class="tab-icon">🔍</span> 竞品动态追踪</button>
+</div>
+
+<!-- ====== MOZA TAB ====== -->
+<div class="tab-content active" id="tab-moza">
+<div class="container">
+
+  <div class="summary-banner">
+    <h3>📊 本周舆情综述</h3>
+    <p id="summaryText">加载中...</p>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">本周提及量</div>
+      <div class="kpi-value" id="kpiMentions">--</div>
+      <div class="kpi-change neutral" id="kpiChange"><span>--</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">正面情绪占比</div>
+      <div class="kpi-value" style="color:var(--positive)" id="kpiPositive">--%</div>
+      <div class="kpi-change neutral">中性 <span id="kpiNeutralText">--</span>% · 负面 <span id="kpiNegativeText">--</span>%</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">高热度话题</div>
+      <div class="kpi-value" id="kpiTopics">--</div>
+      <div class="kpi-change neutral">本周讨论热点</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">风险预警</div>
+      <div class="kpi-value" style="color:var(--yellow)" id="kpiRisks">--</div>
+      <div class="kpi-change neutral" id="kpiRiskLevel">待评估</div>
+    </div>
+  </div>
+
+  <div class="panel-grid">
+    <div class="panel"><h3>📈 提及量趋势</h3><canvas id="trendChart" height="220"></canvas></div>
+    <div class="panel"><h3>😊 情绪分布</h3><div style="max-width:240px;margin:0 auto;"><canvas id="sentimentChart" height="220"></canvas></div></div>
+  </div>
+
+  <div class="panel-grid">
+    <div class="panel"><h3>🔥 高热度话题 TOP 5</h3><div class="topic-list" id="topicList"></div></div>
+    <div class="panel"><h3>⚠️ 风险预警</h3><div class="risk-grid" id="riskList"></div></div>
+  </div>
+
+  <div class="panel-grid">
+    <div class="panel"><h3>💬 代表性观点</h3><div class="sentiment-list" id="sentimentList"></div></div>
+    <div class="panel"><h3>💡 运营行动建议</h3><div class="action-list" id="actionList"></div></div>
+  </div>
+
+</div>
+</div>
+
+<!-- ====== COMPETITOR TAB ====== -->
+<div class="tab-content" id="tab-competitor">
+<div class="container">
+
+  <div class="comp-summary-banner" id="compSummaryBanner">
+    <h3>📋 本周竞争格局速览</h3>
+    <p id="compSummaryText">加载中...</p>
+  </div>
+
+  <div class="kpi-grid" id="compKpiGrid"></div>
+
+  <div class="comp-grid" id="compGrid"></div>
+
+</div>
+</div>
+
+<div class="footer">
+  MOZA Brand Sentiment & Competitor Monitor · 数据来源: Facebook / Instagram / X / Reddit / YouTube / Discord / 媒体报道 · 每周自动更新
+</div>
+
+<!-- ====== SCRIPTS ====== -->
+<script>
+// ---- State ----
+let reports = [], currentReportId = null;
+let trendChart = null, sentimentChart = null;
+let compData = [], compSummary = "";
+
+const $ = (sel) => document.querySelector(sel);
+const fmt = (n) => n != null ? Number(n).toLocaleString() : "--";
+const cls = (v) => v > 0 ? "up" : v < 0 ? "down" : "neutral";
+const arrow = (v) => v > 0 ? "↑" : v < 0 ? "↓" : "→";
+
+// ---- Tab switching ----
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+// ===================== MOZA Tab =====================
+function renderMozaReport(report) {
+  currentReportId = report.id;
+  const r = report;
+  $("#summaryText").textContent = r.overall_summary || "";
+  $("#kpiMentions").textContent = fmt(r.mention_count);
+  $("#kpiPositive").textContent = (r.positive_pct != null ? r.positive_pct.toFixed(1) : "--") + "%";
+  $("#kpiNeutralText").textContent = (r.neutral_pct != null ? r.neutral_pct.toFixed(1) : "--");
+  $("#kpiNegativeText").textContent = (r.negative_pct != null ? r.negative_pct.toFixed(1) : "--");
+
+  const mc = r.mention_change;
+  if (mc != null) {
+    $("#kpiChange").className = "kpi-change " + cls(mc);
+    $("#kpiChange").innerHTML = arrow(mc) + " " + Math.abs(mc).toFixed(1) + "%";
+  }
+
+  const crit = (r.risks || []).filter(x => x.level === "red").length;
+  const warn = (r.risks || []).filter(x => x.level === "yellow").length;
+  $("#kpiRisks").textContent = crit + warn;
+  const hasCrit = crit > 0;
+  const hasWarn = warn > 0;
+  $("#kpiRiskLevel").innerHTML = hasCrit ? '<span style="color:var(--red)">🔴 需关注</span>' : hasWarn ? '<span style="color:var(--yellow)">🟡 有风险</span>' : '<span style="color:var(--green)">🟢 正常</span>';
+
+  $("#kpiTopics").textContent = (r.topics || []).length || 0;
+
+  // Topics
+  let html = "";
+  (r.topics || []).forEach(t => {
+    const rc = t.rank <= 3 ? "r" + t.rank : "rt";
+    html += `<div class="topic-card"><div><span class="topic-rank ${rc}">${t.rank}</span><span class="topic-title">${t.topic}</span></div><div class="topic-summary">${t.summary || ""}</div></div>`;
+  });
+  $("#topicList").innerHTML = html || '<div class="topic-card"><span class="topic-title">暂无数据</span></div>';
+
+  // Risks
+  html = "";
+  (r.risks || []).forEach(ri => {
+    const lev = ri.level === "red" ? "critical" : ri.level === "yellow" ? "warning" : "info";
+    html += `<div class="risk-item ${lev}"><div class="risk-dot ${lev}"></div><div><div>${ri.content}</div><div class="risk-source">来源: ${ri.source || "多渠道"}</div></div></div>`;
+  });
+  $("#riskList").innerHTML = html || '<div class="risk-item info"><div class="risk-dot info"></div><div>本周暂无风险预警</div></div>';
+
+  // Sentiments
+  html = "";
+  (r.sentiments || []).forEach(s => {
+    const emoji = s.sentiment === "positive" ? "😊" : s.sentiment === "negative" ? "😟" : "😐";
+    html += `<div class="sentiment-item"><div class="sentiment-emoji">${emoji}</div><div><div>${s.viewpoint}</div><div class="sentiment-source">来源: ${s.source || "社交媒体"}</div></div></div>`;
+  });
+  $("#sentimentList").innerHTML = html || '<div class="sentiment-item"><span>暂无</span></div>';
+
+  // Actions
+  html = "";
+  (r.actions || []).forEach((a, i) => {
+    const txt = typeof a === "string" ? a : (a.action_text || "");
+    html += `<div class="action-item"><div class="action-num">${i+1}</div><div>${txt}</div></div>`;
+  });
+  $("#actionList").innerHTML = html || '<div class="action-item"><span>暂无</span></div>';
+
+  $("#updateTime").textContent = new Date().toLocaleString("zh-CN", { hour12: false });
+  updateTrendChart();
+  updateSentimentChart(r);
+}
+
+function updateTrendChart() {
+  const labels = reports.slice().reverse().map(r => (r.week_start || "").slice(5) + "~" + (r.week_end || "").slice(5));
+  const data = reports.slice().reverse().map(r => r.mention_count);
+  if (trendChart) trendChart.destroy();
+  const ctx = document.getElementById("trendChart").getContext("2d");
+  trendChart = new Chart(ctx, {
+    type: "line", data: { labels, datasets: [{ label: "提及量", data, borderColor: "#00c2ff", backgroundColor: "rgba(0,194,255,0.08)", borderWidth: 2.5, fill: true, tension: 0.4, pointRadius: 5, pointBackgroundColor: "#00c2ff", pointBorderColor: "#1a1d2e", pointBorderWidth: 2, pointHoverRadius: 7 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: "#1a1d2e", titleColor: "#e4e6f0", bodyColor: "#00c2ff", borderColor: "#2a2f45", borderWidth: 1, padding: 12, callbacks: { label: (ctx) => "提及量: " + fmt(ctx.raw) } } },
+      scales: { x: { ticks: { color: "#8890b5", font: { size: 11 } }, grid: { color: "rgba(42,47,69,0.4)" }, border: { color: "#2a2f45" } }, y: { ticks: { color: "#8890b5", font: { size: 11 }, callback: v => fmt(v) }, grid: { color: "rgba(42,47,69,0.4)" }, border: { color: "#2a2f45" }, beginAtZero: false } },
+      interaction: { mode: "index", intersect: false }
+    }
+  });
+}
+
+function updateSentimentChart(r) {
+  if (sentimentChart) sentimentChart.destroy();
+  const ctx = document.getElementById("sentimentChart").getContext("2d");
+  sentimentChart = new Chart(ctx, {
+    type: "doughnut", data: { labels: ["正面", "中性", "负面"], datasets: [{ data: [r.positive_pct || 0, r.neutral_pct || 0, r.negative_pct || 0], backgroundColor: ["#00c896", "#5c6bc0", "#ff5252"], borderColor: "#1a1d2e", borderWidth: 3 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "65%", plugins: { legend: { position: "bottom", labels: { color: "#8890b5", padding: 16, font: { size: 11 }, usePointStyle: true } }, tooltip: { backgroundColor: "#1a1d2e", titleColor: "#e4e6f0", bodyColor: "#e4e6f0", borderColor: "#2a2f45", borderWidth: 1, padding: 10, callbacks: { label: (ctx) => " " + ctx.label + ": " + ctx.raw + "%" } } } }
+  });
+}
+
+// ===================== COMPETITOR Tab =====================
+const CAT_LABELS = {
+  product_change: { icon: "🔧", label: "产品变化" },
+  community_feedback: { icon: "💬", label: "社区反馈" },
+  business_movement: { icon: "🏢", label: "商业动向" }
+};
+
+function renderCompetitors() {
+  if (!compData.length) return;
+
+  // Week range
+  const ws = compData[0].week_start || "--";
+  const we = compData[0].week_end || "--";
+
+  // Summary
+  $("#compSummaryText").textContent = compSummary || "暂无本周竞品综述";
+  document.querySelector(".comp-summary-banner p").style.minHeight = "auto";
+
+  // KPI: count per competitor
+  let kpiHtml = "";
+  compData.forEach(c => {
+    const pos = c.updates.filter(u => u.sentiment === "positive").length;
+    const neu = c.updates.filter(u => u.sentiment === "neutral").length;
+    const neg = c.updates.filter(u => u.sentiment === "negative").length;
+    const total = c.updates.length;
+    kpiHtml += `<div class="kpi-card">
+      <div class="kpi-label"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c.color};margin-right:6px;"></span>${c.name}</div>
+      <div class="kpi-value" style="font-size:24px;">${total}</div>
+      <div class="kpi-change neutral">
+        <span class="st-p" style="color:var(--positive);">😊 ${pos}</span>
+        <span class="st-n" style="color:var(--neutral);">😐 ${neu}</span>
+        <span class="st-e" style="color:var(--negative);">😟 ${neg}</span>
+      </div>
+    </div>`;
+  });
+  document.getElementById("compKpiGrid").innerHTML = `<div class="kpi-card">
+    <div class="kpi-label">监控周期</div>
+    <div class="kpi-value" style="font-size:20px;">${ws} ~ ${we}</div>
+    <div class="kpi-change neutral">6家竞品 · ${compData.reduce((s,c) => s + c.updates.length, 0)}条动态</div>
+  </div>` + kpiHtml;
+
+  // Competitor cards
+  let gridHtml = "";
+  compData.forEach(c => {
+    // Group by category
+    const groups = {};
+    c.updates.forEach(u => {
+      if (!groups[u.category]) groups[u.category] = [];
+      groups[u.category].push(u);
+    });
+
+    gridHtml += `<div class="comp-card">
+      <div class="comp-header">
+        <div class="comp-color" style="background:${c.color};"></div>
+        <div class="comp-name">${c.name}</div>
+        <div class="comp-stats"><span class="st-p">😊${c.updates.filter(u=>u.sentiment==='positive').length}</span> <span class="st-n">😐${c.updates.filter(u=>u.sentiment==='neutral').length}</span> <span class="st-e">😟${c.updates.filter(u=>u.sentiment==='negative').length}</span></div>
+      </div>
+      <div class="comp-body">`;
+
+    // Render in order: product_change, community_feedback, business_movement
+    const order = ["product_change", "community_feedback", "business_movement"];
+    order.forEach(cat => {
+      const items = groups[cat];
+      if (!items || !items.length) return;
+      const meta = CAT_LABELS[cat] || { icon: "📌", label: cat };
+      gridHtml += `<div class="comp-section">
+        <div class="comp-section-title"><span class="cat-icon">${meta.icon}</span>${meta.label}</div>`;
+      items.forEach(u => {
+        const sc = u.sentiment === "positive" ? "s-p" : u.sentiment === "negative" ? "s-e" : "s-n";
+        gridHtml += `<div class="comp-item">
+          <div class="comp-sent-dot ${sc}"></div>
+          <div class="comp-item-content">
+            <div>${u.content}</div>
+            <div class="comp-item-source">来源: ${u.source || ""}</div>
+          </div>
+        </div>`;
+      });
+      gridHtml += `</div>`;
+    });
+
+    gridHtml += `</div></div>`;
+  });
+
+  document.getElementById("compGrid").innerHTML = gridHtml;
+}
+
+// ===================== Init =====================
+async function init() {
+  try {
+    // MOZA reports
+    const rawRes = await fetch("/api/reports");
+    const rawReports = await rawRes.json();
+    reports = [];
+    for (const rr of rawReports) {
+      const detailRes = await fetch("/api/reports/" + rr.id);
+      const detail = await detailRes.json();
+      reports.push({ ...rr, topics: detail.topics || [], risks: detail.risks || [], sentiments: detail.sentiments || [], actions: detail.actions || [] });
+    }
+    if (reports.length > 0) renderMozaReport(reports[0]);
+
+    // Competitors
+    const compRes = await fetch("/api/competitors");
+    compData = await compRes.json();
+    const sumRes = await fetch("/api/competitors/summary");
+    const sumData = await sumRes.json();
+    compSummary = sumData.summary || "";
+    if (compData.length > 0) renderCompetitors();
+
+    $("#updateTime").textContent = new Date().toLocaleString("zh-CN", { hour12: false });
+  } catch (e) {
+    console.error("Init error:", e);
+    $("#summaryText").textContent = "数据加载失败，请检查后端服务。";
+  }
+}
+
+init();
+</script>
+</body>
+</html>
