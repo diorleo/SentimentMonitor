@@ -312,13 +312,35 @@ def seed_competitor_mock_data():
 # Scheduled task: weekly data refresh
 # ---------------------------------------------------------------------------
 def weekly_refresh():
-    """Called every Monday at 09:00 to check/refresh data."""
+    """Called every Monday at 09:00 to clean up old data (keep latest 8 weeks)."""
     with get_db() as conn:
         latest = conn.execute(
             "SELECT week_end FROM weekly_reports ORDER BY week_end DESC LIMIT 1"
         ).fetchone()
-    if latest:
-        app.logger.info(f"[Scheduler] Latest report week_end: {latest[0]}")
+        if latest:
+            app.logger.info(f"[Scheduler] Latest report week_end: {latest[0]}")
+
+        # Delete reports older than 8 weeks
+        old_reports = conn.execute(
+            "SELECT id FROM weekly_reports WHERE week_end < date('now', '-56 days')"
+        ).fetchall()
+        if old_reports:
+            old_ids = [r["id"] for r in old_reports]
+            placeholders = ",".join("?" * len(old_ids))
+            conn.execute(f"DELETE FROM hot_topics WHERE report_id IN ({placeholders})", old_ids)
+            conn.execute(f"DELETE FROM risk_alerts WHERE report_id IN ({placeholders})", old_ids)
+            conn.execute(f"DELETE FROM sentiment_samples WHERE report_id IN ({placeholders})", old_ids)
+            conn.execute(f"DELETE FROM action_items WHERE report_id IN ({placeholders})", old_ids)
+            conn.execute(f"DELETE FROM weekly_reports WHERE id IN ({placeholders})", old_ids)
+            app.logger.info(f"[Scheduler] Cleaned {len(old_ids)} old reports (older than 8 weeks)")
+
+        # Delete old competitor updates (older than 8 weeks)
+        conn.execute(
+            "DELETE FROM competitor_updates WHERE week_end < date('now', '-56 days')"
+        )
+        conn.execute(
+            "DELETE FROM competitor_summaries WHERE week_end < date('now', '-56 days')"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +352,18 @@ def api_reports():
         reports = conn.execute(
             "SELECT * FROM weekly_reports ORDER BY week_start DESC"
         ).fetchall()
-    return jsonify([dict(r) for r in reports])
+        # Auto-calculate mention_change if not provided
+        report_list = []
+        for i, r in enumerate(reports):
+            r_dict = dict(r)
+            if i + 1 < len(reports):
+                prev_count = reports[i + 1]["mention_count"]
+                if prev_count and prev_count > 0:
+                    r_dict["mention_change"] = round(
+                        (r["mention_count"] - prev_count) / prev_count * 100, 1
+                    )
+            report_list.append(r_dict)
+    return jsonify(report_list)
 
 
 @app.route("/api/reports/<int:report_id>")

@@ -273,8 +273,8 @@
     </div>
   </div>
   <div class="header-right">
-    <div class="badge"><span class="dot"></span> 系统运行中 · 下次更新: 周一 00:00 CST</div>
-    <div class="badge">更新于 <span id="updateTime">--</span></div>
+    <div class="badge"><span class="dot"></span> 系统运行中 · 每周一 09:00 自动更新</div>
+    <div class="badge" id="dataWeekBadge">数据周次: --</div>
   </div>
 </header>
 
@@ -289,7 +289,7 @@
 <div class="container">
 
   <div class="summary-banner">
-    <h3>📊 本周舆情综述</h3>
+    <h3>📊 本周舆情综述 <span id="mozaWeekRange" style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px;"></span></h3>
     <p id="summaryText">加载中...</p>
   </div>
 
@@ -317,7 +317,7 @@
   </div>
 
   <div class="panel-grid">
-    <div class="panel"><h3>📈 提及量趋势</h3><div class="chart-wrap"><canvas id="trendChart"></canvas></div></div>
+    <div class="panel"><h3>📈 提及量趋势</h3><div class="chart-wrap"><canvas id="trendChart"></canvas></div><p id="trendHint" style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px;"></p></div>
     <div class="panel"><h3>😊 情绪分布</h3><div style="max-width:240px;margin:0 auto;"><canvas id="sentimentChart" height="220"></canvas></div></div>
   </div>
 
@@ -433,7 +433,8 @@ function renderMozaReport(report) {
   });
   $("#actionList").innerHTML = html || '<div class="action-item"><span>暂无</span></div>';
 
-  $("#updateTime").textContent = new Date().toLocaleString("zh-CN", { hour12: false });
+  $("#mozaWeekRange").textContent = (r.week_start || "--") + " ~ " + (r.week_end || "--");
+  $("#dataWeekBadge").textContent = "数据周次: " + (r.week_start || "--") + " ~ " + (r.week_end || "--");
   updateTrendChart();
   updateSentimentChart(r);
 }
@@ -444,6 +445,12 @@ function updateTrendChart() {
     const labels = reports.slice().reverse().map(r => (r.week_start || "").slice(5) + "~" + (r.week_end || "").slice(5));
     const data = reports.slice().reverse().map(r => r.mention_count);
     if (trendChart) trendChart.destroy();
+    const hintEl = document.getElementById("trendHint");
+    if (reports.length <= 1) {
+      hintEl.textContent = "📌 首周数据，趋势将在后续周次更新后累积展示";
+    } else {
+      hintEl.textContent = "共 " + reports.length + " 周数据 · 每周一更新";
+    }
     const ctx = document.getElementById("trendChart").getContext("2d");
     trendChart = new Chart(ctx, {
     type: "line", data: { labels, datasets: [{ label: "提及量", data, borderColor: "#00c2ff", backgroundColor: "rgba(0,194,255,0.08)", borderWidth: 2.5, fill: true, tension: 0.4, pointRadius: 5, pointBackgroundColor: "#00c2ff", pointBorderColor: "#1a1d2e", pointBorderWidth: 2, pointHoverRadius: 7 }] },
@@ -594,10 +601,9 @@ async function init() {
     hasError = true;
   }
 
-  $("#updateTime").textContent = new Date().toLocaleString("zh-CN", { hour12: false });
+  $("#dataWeekBadge").textContent = "数据周次: " + (compData[0].week_start || "--") + " ~ " + (compData[0].week_end || "--");
   if (hasError) {
-    const dt = $("#updateTime");
-    dt.textContent += " · ⚠️ 部分数据加载失败";
+    $("#dataWeekBadge").textContent += " · ⚠️ 部分数据加载失败";
   }
 }
 
