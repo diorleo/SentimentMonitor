@@ -601,7 +601,10 @@ async function init() {
     hasError = true;
   }
 
-  $("#dataWeekBadge").textContent = "数据周次: " + (compData[0].week_start || "--") + " ~ " + (compData[0].week_end || "--");
+  // Only update badge from competitor data if MOZA data didn't set it
+  if (!reports.length && compData.length > 0) {
+    $("#dataWeekBadge").textContent = "数据周次: " + (compData[0].week_start || "--") + " ~ " + (compData[0].week_end || "--");
+  }
   if (hasError) {
     $("#dataWeekBadge").textContent += " · ⚠️ 部分数据加载失败";
   }

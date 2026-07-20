@@ -397,6 +397,117 @@ def get_competitor_mock_updates(variant=0):
                        "WINCTRL 正式进军 DD 市场，WINDRIVE 首发但软件体验有待打磨；"
                        "Thrustmaster T-GT III 和 VIRPIL 新品各自巩固原有阵地。MOZA 需关注 Simagic 的中高端进攻和 PXN 的下沉破圈策略。",
         },
+        {
+            "Fanatec": [
+                ("business_movement", "Endor AG 宣布获得 Corsair 战略投资，CEO 更换为 Corsair 高管", "财经媒体 / 领英", "positive"),
+                ("product_change", "发布 Podium DD3 基座固件 v4.0，全面升级力反馈引擎，支持 25Nm 恒定扭矩", "官网 changelog", "positive"),
+                ("community_feedback", "Corsair 入主后社区情绪明显回暖，订单交付周期从 6 周缩短至 2 周", "Reddit r/Fanatec", "positive"),
+                ("community_feedback", "部分老用户担忧品牌定位变化，担心高品质定位被稀释", "Reddit / Twitter", "neutral"),
+            ],
+            "Simagic": [
+                ("product_change", "推出 Alpha Ultimate 基座特别版，峰值扭矩 23Nm，定价 $1,199", "官网 / YouTube 评测", "positive"),
+                ("community_feedback", "Reddit 对比评测: Alpha Ultimate vs Fanatec Podium DD3，Simagic 性价比胜出", "Reddit / Bilibili", "positive"),
+                ("business_movement", "与 iRacing 合作举办 Simagic Cup 系列赛，奖金池 $50,000", "iRacing 官方公告", "positive"),
+            ],
+            "Thrustmaster": [
+                ("product_change", "T-LCM PRO 踏板发布，全金属结构 + 液压阻尼升级", "官网 / Twitter", "positive"),
+                ("community_feedback", "T598 供货恢复正常，入门级 DD 市场争夺白热化", "Reddit / Twitter", "neutral"),
+                ("business_movement", "宣布与 Forza Motorsport 合作，成为 2026 年度官方推荐硬件", "Xbox Wire", "positive"),
+            ],
+            "PXN": [
+                ("product_change", "V12 Pro 发布，12Nm 扭矩 + 快拆系统，定价 ¥2,999", "官网 / 京东 / B站", "positive"),
+                ("community_feedback", "B站评测: V12 Pro 对标本竞品 R5/R9，做工和力反馈认可度高", "Bilibili", "positive"),
+                ("business_movement", "海外市场拓展加速，入驻 Amazon US/UK/DE 三国站点", "领英 / 新闻稿", "positive"),
+            ],
+            "WINCTRL": [
+                ("product_change", "WINDRIVE 软件 v2.1 发布，修复社区反馈的 FFB 延迟和 UI 卡顿问题", "Discord / 官网", "positive"),
+                ("community_feedback", "软件更新后社区口碑明显改善，Discord 日活用户增长 40%", "Discord", "positive"),
+            ],
+            "VIRPIL": [
+                ("product_change", "VPC Rotor TCS Plus 直升机总距控制器发布，填补市场空白", "官网 / r/hotas", "positive"),
+                ("community_feedback", "DCS 和 MSFS 社区高度关注，称 VIRPIL 在专业飞行外设领域无可匹敌", "r/hotas / DCS 论坛", "positive"),
+                ("business_movement", "新增日本和韩国经销商，亚太市场渠道覆盖扩大至 8 国", "领英", "positive"),
+            ],
+            "_summary": "本周竞品格局重大变化: Fanatec 获 Corsair 战略投资是 sim racing 行业年度最大新闻，"
+                       "品牌信任度有望回升；Simagic 借 Alpha Ultimate 和 iRacing 赛事组合拳持续进攻高端市场；"
+                       "Thrustmaster 获 Forza 官方合作加持；PXN 海外拓展提速，V12 Pro 定价对标一线品牌；"
+                       "WINCTRL 软件体验改善后社区回暖；VIRPIL 在专业飞行模拟赛道继续巩固霸权。"
+                       "MOZA 需密切关注 Corsair+Fanatec 组合可能带来的行业洗牌效应。",
+        },
+        {
+            "Fanatec": [
+                ("business_movement", "Corsair 整合后首次发布产品路线图，承诺 2026 Q3 前完成全产品线固件重构", "官方博客", "positive"),
+                ("product_change", "BMW M4 GT3 官方方向盘宣发，定价 €1,499 为迄今最贵单品", "官网 / YouTube", "positive"),
+                ("community_feedback", "高端方向盘定价引发争议，社区认为 Endor 在 Corsair 时代定价策略未变", "Reddit / Twitter", "neutral"),
+            ],
+            "Simagic": [
+                ("product_change", "P2000-H 液压踏板套装正式上市，全 CNC 铝合金结构", "官网 / YouTube", "positive"),
+                ("community_feedback", "P2000-H 被多位评测者称为\"千元级最强液压踏板\"", "Bilibili / Reddit", "positive"),
+                ("business_movement", "签约欧洲最大 sim racing 连锁体验中心 RaceRoom，进驻 8 国 30+ 门店", "领英 / Twitter", "positive"),
+            ],
+            "Thrustmaster": [
+                ("product_change", "推出入门级 DD 方向盘 T128 DD，定价 $199 直接对标 MOZA R3", "官网 / Twitter", "positive"),
+                ("community_feedback", "T128 DD 定价激进，社区认为是 Thrustmaster 对 MOZA/PXN 下沉市场的反击", "Reddit / Bilibili", "positive"),
+                ("community_feedback", "T818 用户抱怨配套方向盘选择太少，官方称 Q3 将扩展生态系统", "Twitter", "negative"),
+            ],
+            "PXN": [
+                ("product_change", "PXN 推出赛车座椅 PS-01，配备 4 点式安全带和可调角度", "京东 / B站", "positive"),
+                ("community_feedback", "PS-01 定价 ¥899 被赞\"国产性价比之王\"，首批秒罄", "Bilibili / 微博", "positive"),
+                ("business_movement", "与腾讯 START 云游戏合作，PXN 设备支持云端即插即用", "新闻稿", "positive"),
+            ],
+            "WINCTRL": [
+                ("business_movement", "启动 Pre-A 轮融资，估值目标 $50M，已获两家美元基金 TS", "36氪 / 投资界", "positive"),
+                ("community_feedback", "融资消息在社区引发讨论，多数用户看好但担忧\"被大厂收购\"", "Discord", "neutral"),
+            ],
+            "VIRPIL": [
+                ("product_change", "VPC WarBRD-D 摇杆底座升级至 v3 版本，支持双凸轮快调", "官网", "positive"),
+                ("community_feedback", "WarBRD-D v3 被 DCS 玩家称为\"最适合直升机飞行的底座\"", "r/hotas", "positive"),
+            ],
+            "_summary": "本周行业聚焦中高端产品竞赛: Fanatec 发布 BMW M4 GT3 天价方向盘试探市场天花板；"
+                       "Thrustmaster T128 DD 以 $199 超低价冲击入门市场，标志着 DD 普及化加速；"
+                       "Simagic 在欧洲体验渠道大幅扩张，品牌渗透力增强；"
+                       "PXN 向赛车座椅等外设周边延伸，生态闭环意图明显；"
+                       "WINCTRL 融资信号显示资本对 sim racing 赛道信心；"
+                       "MOZA 需警惕 Thrustmaster 低价策略对 R3/R5 产品线的直接冲击。",
+        },
+        {
+            "Fanatec": [
+                ("product_change", "ClubSport Handbrake V2 发布，终于加入线性和渐进式阻力调节", "官网 / YouTube", "positive"),
+                ("community_feedback", "手刹产品线更新获拉力赛社区热烈反响，填补多年产品空白", "Reddit r/simracing", "positive"),
+                ("business_movement", "Corsair 宣布将在 Computex 展示 Fanatec + Elgato 联动生态方案", "Corsair 官方", "positive"),
+            ],
+            "Simagic": [
+                ("product_change", "发布 GT Neo X 方向盘，磁吸快拆 + 无线充电 + 5寸触摸屏", "官网 / YouTube 评测", "positive"),
+                ("community_feedback", "GT Neo X 评测一致好评，用户称\"这是目前性价比最高的旗舰方向盘\"", "Reddit / Bilibili", "positive"),
+                ("business_movement", "Q2 全球出货量同比增长 180%，北美市场份额首次超越 Thrustmaster", "行业分析报告", "positive"),
+            ],
+            "Thrustmaster": [
+                ("product_change", "发布 eSwap X Racing 可换模块方向盘系统，支持赛车/卡车/方程式三种模式", "官网 / Gamescom", "positive"),
+                ("community_feedback", "模块化概念受好评但首发固件 bug 较多，社区建议等 2.0 版本", "Reddit", "neutral"),
+                ("business_movement", "宣布与 Renault Sport 合作，推出 Alpine F1 联名方向盘", "Twitter / 官网", "positive"),
+            ],
+            "PXN": [
+                ("product_change", "PXN 生态 App 4.0 上线，新增 AI 驾驶分析 + 社区挑战赛功能", "官博 / B站", "positive"),
+                ("community_feedback", "AI 驾驶分析功能被认可但数据准确性在复杂赛道场景中有待提升", "Bilibili", "neutral"),
+                ("business_movement", "签约 LPL 知名电竞选手 Uzi 为品牌代言人，出圈营销力度加大", "微博 / 新闻稿", "positive"),
+            ],
+            "WINCTRL": [
+                ("product_change", "WINDRIVE 方向盘发布碳纤维限量版，定价 $899 定位高端", "官网 / Twitter", "positive"),
+                ("community_feedback", "碳纤维版做工获好评但软件生态仍是短板，与主流赛车游戏兼容性待完善", "Reddit / Discord", "neutral"),
+            ],
+            "VIRPIL": [
+                ("product_change", "VPC ACE 系列座舱面板上市: 起飞/巡航/战斗三款模块化面板", "官网 / r/hotas", "positive"),
+                ("community_feedback", "座舱面板填补了发烧友\"全物理座舱\"的最后一块拼图", "DCS 论坛 / Reddit", "positive"),
+                ("business_movement", "与 MSFS 2026 深度集成，VIRPIL 设备全部支持即插即用识别", "微软官方 / VIRPIL", "positive"),
+            ],
+            "_summary": "本周竞品走势分化加剧: Simagic Q2 数据亮眼，北美市场份额突破标志着品牌质变；"
+                       "Fanatec 在 Corsair 整合期稳步推出新品，手刹更新和 Computex 生态展示显示战略清晰化；"
+                       "Thrustmaster 模组化方向盘和 Alpine F1 联名双双发力但首发品控需提升；"
+                       "PXN 签约 Uzi 出圈营销 + AI 生态 App 构建长期用户粘性；"
+                       "WINCTRL 高端化尝试碳纤维版但软件体验仍是核心短板；"
+                       "VIRPIL 座舱面板生态化战略在飞行模拟赛道独占鳌头。"
+                       "MOZA 需紧急关注 Simagic 北美增长态势，以及 Thrustmaster 模组化产品对中端市场的潜在分流。",
+        },
     ]
     data = variants[variant % len(variants)]
     summary = data.pop("_summary", "")
@@ -456,6 +567,19 @@ def ensure_current_competitor_data(week_start, week_end):
 
 def seed_competitor_mock_data():
     """Seed initial competitor data, then ensure current week is filled."""
+    with get_db() as conn:
+        cnt = conn.execute("SELECT COUNT(*) FROM competitor_updates").fetchone()[0]
+
+    if cnt == 0:
+        # Generate one historical week so there's trend context
+        today = datetime.now()
+        days_since_monday = today.weekday()
+        last_monday = today - timedelta(days=days_since_monday + 14)
+        ws = last_monday.strftime("%Y-%m-%d")
+        we = (last_monday + timedelta(days=6)).strftime("%Y-%m-%d")
+        ensure_current_competitor_data(ws, we)
+        app.logger.info(f"[Seed] Generated initial competitor data for {ws} ~ {we}")
+
     ws, we = get_current_week()
     ensure_current_competitor_data(ws, we)
 
