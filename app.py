@@ -133,27 +133,16 @@ def seed_competitors(conn):
 # ---------------------------------------------------------------------------
 # Seed mock data
 # ---------------------------------------------------------------------------
-def seed_mock_data():
-    with get_db() as conn:
-        cnt = conn.execute("SELECT COUNT(*) FROM weekly_reports").fetchone()[0]
-        if cnt > 0:
-            return
-
-    today = datetime.now()
-    # Find last Monday
-    days_since_monday = today.weekday()
-    last_monday = today - timedelta(days=days_since_monday + 7)
-    
-    mock_weeks = [
+def generate_mock_week(week_start_str, week_end_str, variant=0):
+    """Generate a mock weekly report for the given week range.
+    variant cycles through different mock content so each week looks different.
+    """
+    variants = [
         {
-            "week_start": (last_monday - timedelta(weeks=1)).strftime("%Y-%m-%d"),
-            "week_end": (last_monday - timedelta(days=1)).strftime("%Y-%m-%d"),
-            "overall_summary": "本周MOZA舆情整体热度小幅回落但保持稳定。产品质量口碑持续走强，但关于售后服务的负面讨论需要引起重视。Facebook用户群中出现大规模讨论，主要集中在配件兼容性和软件体验上。",
+            "summary": "本周MOZA舆情整体热度小幅回落但保持稳定。产品质量口碑持续走强，但关于售后服务的负面讨论需要引起重视。Facebook用户群中出现大规模讨论，主要集中在配件兼容性和软件体验上。",
             "mention_count": 1420,
-            "mention_change": -10.1,
-            "positive_pct": 58.0,
-            "neutral_pct": 27.0,
-            "negative_pct": 15.0,
+            "change": -10.1,
+            "pos": 58, "neu": 27, "neg": 15,
             "topics": [
                 {"rank": 1, "topic": "售后服务体验", "summary": "多位用户分享售后经历，部分正面（快速换货）但也有负面（响应慢）"},
                 {"rank": 2, "topic": "第三方配件兼容性", "summary": "Reddit和Facebook讨论方向盘支架、快拆等第三方配件的兼容性问题"},
@@ -176,78 +165,161 @@ def seed_mock_data():
                 "在Discord保持每月至少一次AMA活动频率",
             ],
         },
+        {
+            "summary": "本周MOZA社交媒体声量显著上升，主要受新品R12直驱基座正式发布推动。Reddit和YouTube上的早期评测反馈积极，品牌热度持续走高。Discord社区新成员增长明显。",
+            "mention_count": 1890,
+            "change": 23.5,
+            "pos": 72, "neu": 18, "neg": 10,
+            "topics": [
+                {"rank": 1, "topic": "R12直驱基座发布", "summary": "R12正式发布，12Nm扭矩、紧凑设计引发热议，早期评测反馈极佳"},
+                {"rank": 2, "topic": "R12 vs Fanatec CSL DD", "summary": "多个YouTuber发布对比评测，MOZA R12在扭矩和价格上占优"},
+                {"rank": 3, "topic": "Pithouse 2.0更新", "summary": "新版Pithouse软件界面重构，设置更直观，社区好评"},
+                {"rank": 4, "topic": "SimRacing社区口碑", "summary": "r/simracing社区称MOZA已成为Fanatec最强替代方案"},
+            ],
+            "risks": [
+                {"level": "yellow", "content": "R12初期产能有限，需关注供货和发货时效", "source": "官方社区"},
+                {"level": "green", "content": "整体舆情健康，品牌热度处于上升通道", "source": "全渠道"},
+            ],
+            "sentiments": [
+                {"sentiment": "positive", "viewpoint": "R12是目前中端DD市场最有竞争力的产品", "source": "YouTube评测"},
+                {"sentiment": "positive", "viewpoint": "Pithouse 2.0终于把软件体验提升到了硬件水准", "source": "Reddit"},
+                {"sentiment": "negative", "viewpoint": "希望MOZA能推出更多方向盘款式选择", "source": "Discord"},
+            ],
+            "actions": [
+                "跟进R12评测内容，收集用户反馈用于产品迭代",
+                "建议市场部利用R12热度开展社交媒体营销活动",
+            ],
+        },
+        {
+            "summary": "本周MOZA舆情整体平稳，社区讨论主要集中在产品生态扩展和固件更新上。SimRacing Expo相关传闻持续发酵，用户期待值较高。竞品动态活跃，Fanatec年底促销对市场格局产生扰动。",
+            "mention_count": 1340,
+            "change": -2.8,
+            "pos": 64, "neu": 24, "neg": 12,
+            "topics": [
+                {"rank": 1, "topic": "固件v2.4更新", "summary": "最新固件优化了力反馈算法，降低了齿槽效应，用户反馈积极"},
+                {"rank": 2, "topic": "MOZA生态扩展传闻", "summary": "据传MOZA正在开发手刹和序列档，社区讨论热烈"},
+                {"rank": 3, "topic": "Fanatec促销冲击", "summary": "Fanatec黑色星期五大促对MOZA部分SKU形成价格压力"},
+                {"rank": 4, "topic": "新手购机咨询", "summary": "Reddit上多次出现MOZA vs Thrustmaster入门选购咨询帖"},
+            ],
+            "risks": [
+                {"level": "yellow", "content": "Fanatec促销可能短期影响MOZA入门级产品销量", "source": "市场分析"},
+                {"level": "green", "content": "固件更新反馈积极，技术口碑稳步提升", "source": "Reddit/Discord"},
+            ],
+            "sentiments": [
+                {"sentiment": "positive", "viewpoint": "固件更新频率和质量在行业里算顶尖的", "source": "Reddit"},
+                {"sentiment": "positive", "viewpoint": "MOZA如果能出手刹就完美了，现在只能用第三方方案", "source": "Discord"},
+                {"sentiment": "neutral", "viewpoint": "Fanatec打折确实香，但长远看MOZA生态更有潜力", "source": "Reddit"},
+            ],
+            "actions": [
+                "密切关注Fanatec促销对市场份额的影响",
+                "如手刹/序列档在开发中，可考虑在社区释放信号维持热度",
+            ],
+        },
     ]
+    v = variants[variant % len(variants)]
 
     with get_db() as conn:
-        for w in mock_weeks:
-            cursor = conn.execute(
-                """INSERT INTO weekly_reports 
-                   (week_start, week_end, overall_summary, mention_count, 
-                    mention_change, positive_pct, neutral_pct, negative_pct)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (w["week_start"], w["week_end"], w["overall_summary"],
-                 w["mention_count"], w["mention_change"],
-                 w["positive_pct"], w["neutral_pct"], w["negative_pct"])
+        # Check if this week already exists (de-duplicate)
+        exists = conn.execute(
+            "SELECT id FROM weekly_reports WHERE week_start=? AND week_end=?",
+            (week_start_str, week_end_str)
+        ).fetchone()
+        if exists:
+            return exists["id"]
+
+        cursor = conn.execute(
+            """INSERT INTO weekly_reports 
+               (week_start, week_end, overall_summary, mention_count, 
+                mention_change, positive_pct, neutral_pct, negative_pct)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (week_start_str, week_end_str, v["summary"],
+             v["mention_count"], v["change"],
+             v["pos"], v["neu"], v["neg"])
+        )
+        rid = cursor.lastrowid
+
+        for t in v["topics"]:
+            conn.execute(
+                "INSERT INTO hot_topics (report_id, rank, topic, summary) VALUES (?,?,?,?)",
+                (rid, t["rank"], t["topic"], t["summary"])
             )
-            rid = cursor.lastrowid
-
-            for t in w["topics"]:
-                conn.execute(
-                    "INSERT INTO hot_topics (report_id, rank, topic, summary) VALUES (?,?,?,?)",
-                    (rid, t["rank"], t["topic"], t["summary"])
-                )
-
-            for r in w["risks"]:
-                conn.execute(
-                    "INSERT INTO risk_alerts (report_id, level, content, source) VALUES (?,?,?,?)",
-                    (rid, r["level"], r["content"], r["source"])
-                )
-
-            for s in w["sentiments"]:
-                conn.execute(
-                    "INSERT INTO sentiment_samples (report_id, sentiment, viewpoint, source) VALUES (?,?,?,?)",
-                    (rid, s["sentiment"], s["viewpoint"], s["source"])
-                )
-
-            for a in w["actions"]:
-                conn.execute(
-                    "INSERT INTO action_items (report_id, action_text) VALUES (?,?)",
-                    (rid, a if isinstance(a, str) else a.get("action_text", str(a)))
-                )
+        for r in v["risks"]:
+            conn.execute(
+                "INSERT INTO risk_alerts (report_id, level, content, source) VALUES (?,?,?,?)",
+                (rid, r["level"], r["content"], r["source"])
+            )
+        for s in v["sentiments"]:
+            conn.execute(
+                "INSERT INTO sentiment_samples (report_id, sentiment, viewpoint, source) VALUES (?,?,?,?)",
+                (rid, s["sentiment"], s["viewpoint"], s["source"])
+            )
+        for a in v["actions"]:
+            conn.execute(
+                "INSERT INTO action_items (report_id, action_text) VALUES (?,?)",
+                (rid, a)
+            )
+        return rid
 
 
-def seed_competitor_mock_data():
-    """Seed mock competitor tracking data."""
+def get_current_week():
+    """Return (week_start, week_end) for the most recently completed week."""
     today = datetime.now()
-    days_since_monday = today.weekday()
-    last_monday = today - timedelta(days=days_since_monday + 7)
-    week_start = (last_monday - timedelta(weeks=1)).strftime("%Y-%m-%d")
-    week_end = (last_monday - timedelta(days=1)).strftime("%Y-%m-%d")
+    # Most recent Sunday
+    days_since_sunday = (today.weekday() + 1) % 7  # Monday=0, Sunday=6 → days since last Sunday
+    if days_since_sunday == 0:
+        days_since_sunday = 7
+    last_sunday = today - timedelta(days=days_since_sunday)
+    # Previous Monday to Sunday
+    week_start = last_sunday - timedelta(days=6)
+    return week_start.strftime("%Y-%m-%d"), last_sunday.strftime("%Y-%m-%d")
 
+
+def ensure_current_week_data():
+    """Auto-fill MOZA report + competitor data if current week is missing.
+    Called on startup and by the scheduler — works even if server was asleep.
+    """
+    ws, we = get_current_week()
     with get_db() as conn:
-        # Init competitor list
-        existing = conn.execute("SELECT COUNT(*) FROM competitors").fetchone()[0]
-        if existing == 0:
-            brands = [
-                ("Fanatec", "#f5a623"),
-                ("Simagic", "#00c2ff"),
-                ("Thrustmaster", "#e53935"),
-                ("PXN", "#7c4dff"),
-                ("WINCTRL", "#00e676"),
-                ("VIRPIL", "#ff6d00"),
-            ]
-            conn.executemany("INSERT INTO competitors (name, color) VALUES (?,?)", brands)
-
-        cnt = conn.execute(
-            "SELECT COUNT(*) FROM competitor_updates WHERE week_start=?",
-            (week_start,)
+        exists = conn.execute(
+            "SELECT COUNT(*) FROM weekly_reports WHERE week_start=? AND week_end=?",
+            (ws, we)
         ).fetchone()[0]
-        if cnt > 0:
-            return
+    if exists:
+        return  # Already has data for this week
 
-        competitors = {r["name"]: r["id"] for r in conn.execute("SELECT * FROM competitors").fetchall()}
+    # Determine variant from existing report count (so it cycles naturally)
+    with get_db() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM weekly_reports").fetchone()[0]
 
-        mock_data = {
+    rid = generate_mock_week(ws, we, variant=total)
+    app.logger.info(f"[AutoFill] Generated MOZA report for {ws} ~ {we} (id={rid})")
+
+    # Also fill competitor data
+    ensure_current_competitor_data(ws, we)
+
+
+def seed_mock_data():
+    """Seed initial data if DB is completely empty, then fill current week."""
+    with get_db() as conn:
+        cnt = conn.execute("SELECT COUNT(*) FROM weekly_reports").fetchone()[0]
+    if cnt == 0:
+        # Generate one historical week so there's trend context
+        today = datetime.now()
+        days_since_monday = today.weekday()
+        last_monday = today - timedelta(days=days_since_monday + 14)
+        ws = last_monday.strftime("%Y-%m-%d")
+        we = (last_monday + timedelta(days=6)).strftime("%Y-%m-%d")
+        rid = generate_mock_week(ws, we, variant=0)
+        app.logger.info(f"[Seed] Generated initial report for {ws} ~ {we} (id={rid})")
+
+    # Always ensure current week has data
+    ensure_current_week_data()
+
+
+def get_competitor_mock_updates(variant=0):
+    """Return mock competitor data. variant cycles through different content sets."""
+    variants = [
+        {
             "Fanatec": [
                 ("product_change", "发布 ClubSport DD+ 固件 v2.1.3，优化了力反馈算法降低延迟", "官网 changelog", "positive"),
                 ("product_change", "F1 官方授权方向盘 CSL Elite Steering Wheel F1ESports V2 开启预售", "官网 / Twitter", "positive"),
@@ -282,8 +354,86 @@ def seed_competitor_mock_data():
                 ("community_feedback", "高端飞行模拟社区对 VIRPIL 新品评价极高，但价格争议持续", "r/hotas / DCS 论坛", "neutral"),
                 ("business_movement", "与 DCS World 开发商 Eagle Dynamics 达成官方外设合作伙伴关系", "DCS 官方公告", "positive"),
             ],
-        }
+            "_summary": "本周竞品市场分化明显：Simagic 凭借 Micro Center 渠道合作加速北美扩张，品牌势能持续上升；"
+                       "Fanatec 受母公司 Endor AG 财务危机拖累，社区信任度下滑；"
+                       "PXN 借助京东合作发力国内市场，V12 Lite 入门级 DD 定价激进；"
+                       "Thrustmaster 产品线碎片化和供货问题仍是主要挑战；"
+                       "VIRPIL 深耕高端飞行模拟细分赛道，DCS 合作提升专业品牌形象；"
+                       "WINCTRL 整体声量偏小但核心用户群体稳定。MOZA 作为直接竞品，需重点关注 Simagic 渠道扩张和 PXN 低价策略两条战线。",
+        },
+        {
+            "Fanatec": [
+                ("product_change", "DD Pro 推出散热底座配件套件，回应社区高温降功率反馈", "官网论坛", "neutral"),
+                ("business_movement", "宣布进行组织架构调整，全球裁员 15% 以削减成本", "领英 / 财经媒体", "negative"),
+                ("community_feedback", "裁员消息引发社区讨论，部分用户担忧售后和固件更新受影响", "Reddit", "negative"),
+            ],
+            "Simagic": [
+                ("product_change", "发布全新 FX Pro 方向盘，碳纤维结构、4.3寸显示屏", "官网 / YouTube", "positive"),
+                ("community_feedback", "FX Pro 定价 $699，社区认为性价比极高", "Reddit / Discord", "positive"),
+                ("business_movement", "欧洲市场新增 5 家授权经销商，加速全球化布局", "领英", "positive"),
+            ],
+            "Thrustmaster": [
+                ("product_change", "T-GT III 正式发布，支持 PS5/PC 双平台，零售价 ¥5,999", "官网 / 京东", "positive"),
+                ("community_feedback", "T-GT III 定价偏高，社区期待降价", "Bilibili / Reddit", "neutral"),
+                ("business_movement", "与 Gran Turismo 7 深度合作推出专属方向盘配置文件", "Twitter", "positive"),
+            ],
+            "PXN": [
+                ("product_change", "V12 Lite 推出白色限定版，联名初音未来 IP", "京东 / B站", "positive"),
+                ("community_feedback", "初音联名款引发二次元圈层关注，出圈效应明显", "B站 / 微博", "positive"),
+                ("business_movement", "开启海外市场拓展，首批进入东南亚 3 国", "新闻稿", "positive"),
+            ],
+            "WINCTRL": [
+                ("product_change", "发布首款直驱基座 WINDRIVE 10Nm，进入 DD 市场", "官网", "positive"),
+                ("community_feedback", "WINDRIVE 软件体验被批评不够成熟，社区期待快速迭代", "Discord", "negative"),
+            ],
+            "VIRPIL": [
+                ("product_change", "MongoosT-50CM4 油门发布，全金属 CNC 加工", "官网", "positive"),
+                ("community_feedback", "飞行模拟社区一致好评，称做工和精度无可挑剔", "r/hotas", "positive"),
+                ("business_movement", "在立陶宛扩建生产基地，产能提升 40%", "LinkedIn", "positive"),
+            ],
+            "_summary": "本周竞品格局发生显著变化：Fanatec 裁员消息冲击社区信心，品牌形象受损；"
+                       "Simagic 凭借 FX Pro 方向盘巩固中高端地位，产品力持续提升；"
+                       "PXN 通过初音未来 IP 联名实现破圈营销，在国内年轻用户群体中打开新局面；"
+                       "WINCTRL 正式进军 DD 市场，WINDRIVE 首发但软件体验有待打磨；"
+                       "Thrustmaster T-GT III 和 VIRPIL 新品各自巩固原有阵地。MOZA 需关注 Simagic 的中高端进攻和 PXN 的下沉破圈策略。",
+        },
+    ]
+    data = variants[variant % len(variants)]
+    summary = data.pop("_summary", "")
+    return data, summary
 
+
+def ensure_current_competitor_data(week_start, week_end):
+    """Auto-fill competitor data for the given week if missing."""
+    with get_db() as conn:
+        # Ensure competitor list exists
+        existing = conn.execute("SELECT COUNT(*) FROM competitors").fetchone()[0]
+        if existing == 0:
+            brands = [
+                ("Fanatec", "#f5a623"),
+                ("Simagic", "#00c2ff"),
+                ("Thrustmaster", "#e53935"),
+                ("PXN", "#7c4dff"),
+                ("WINCTRL", "#00e676"),
+                ("VIRPIL", "#ff6d00"),
+            ]
+            conn.executemany("INSERT INTO competitors (name, color) VALUES (?,?)", brands)
+
+        # Check if this week's data already exists
+        cnt = conn.execute(
+            "SELECT COUNT(*) FROM competitor_updates WHERE week_start=? AND week_end=?",
+            (week_start, week_end)
+        ).fetchone()[0]
+        if cnt > 0:
+            return
+
+        # Determine variant
+        total = conn.execute("SELECT COUNT(DISTINCT week_start) FROM competitor_updates").fetchone()[0]
+
+    mock_data, summary = get_competitor_mock_updates(variant=total)
+
+    with get_db() as conn:
+        competitors = {r["name"]: r["id"] for r in conn.execute("SELECT * FROM competitors").fetchall()}
         for name, updates in mock_data.items():
             cid = competitors.get(name)
             if cid:
@@ -298,28 +448,27 @@ def seed_competitor_mock_data():
         conn.execute(
             """INSERT OR IGNORE INTO competitor_summaries (week_start, week_end, summary)
                VALUES (?,?,?)""",
-            (week_start, week_end,
-             "本周竞品市场分化明显：Simagic 凭借 Micro Center 渠道合作加速北美扩张，品牌势能持续上升；"
-             "Fanatec 受母公司 Endor AG 财务危机拖累，社区信任度下滑；"
-             "PXN 借助京东合作发力国内市场，V12 Lite 入门级 DD 定价激进；"
-             "Thrustmaster 产品线碎片化和供货问题仍是主要挑战；"
-             "VIRPIL 深耕高端飞行模拟细分赛道，DCS 合作提升专业品牌形象；"
-             "WINCTRL 整体声量偏小但核心用户群体稳定。MOZA 作为直接竞品，需重点关注 Simagic 渠道扩张和 PXN 低价策略两条战线。")
+            (week_start, week_end, summary)
         )
+
+    app.logger.info(f"[AutoFill] Generated competitor data for {week_start} ~ {week_end}")
+
+
+def seed_competitor_mock_data():
+    """Seed initial competitor data, then ensure current week is filled."""
+    ws, we = get_current_week()
+    ensure_current_competitor_data(ws, we)
 
 
 # ---------------------------------------------------------------------------
 # Scheduled task: weekly data refresh
 # ---------------------------------------------------------------------------
 def weekly_refresh():
-    """Called every Monday at 09:00 to clean up old data (keep latest 8 weeks)."""
-    with get_db() as conn:
-        latest = conn.execute(
-            "SELECT week_end FROM weekly_reports ORDER BY week_end DESC LIMIT 1"
-        ).fetchone()
-        if latest:
-            app.logger.info(f"[Scheduler] Latest report week_end: {latest[0]}")
+    """Called every Monday at 09:00 — auto-fill current week and clean old data."""
+    # First, ensure current week has data
+    ensure_current_week_data()
 
+    with get_db() as conn:
         # Delete reports older than 8 weeks
         old_reports = conn.execute(
             "SELECT id FROM weekly_reports WHERE week_end < date('now', '-56 days')"
