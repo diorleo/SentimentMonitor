@@ -131,6 +131,86 @@ def seed_competitors(conn):
 
 
 # ---------------------------------------------------------------------------
+# DB insertion helpers (shared by mock generator and real crawler)
+# ---------------------------------------------------------------------------
+def _insert_weekly_report(week_start_str, week_end_str, v):
+    """Insert a weekly report and all related sub-records into the DB.
+    *v* must have keys: summary, mention_count, change, pos, neu, neg,
+    topics (list of {rank,topic,summary}), risks (list of {level,content,source}),
+    sentiments (list of {sentiment,viewpoint,source}), actions (list of str).
+    Returns the report ID.
+    """
+    with get_db() as conn:
+        exists = conn.execute(
+            "SELECT id FROM weekly_reports WHERE week_start=? AND week_end=?",
+            (week_start_str, week_end_str)
+        ).fetchone()
+        if exists:
+            return exists["id"]
+
+        cursor = conn.execute(
+            """INSERT INTO weekly_reports
+               (week_start, week_end, overall_summary, mention_count,
+                mention_change, positive_pct, neutral_pct, negative_pct)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (week_start_str, week_end_str, v["summary"],
+             v["mention_count"], v["change"],
+             v["pos"], v["neu"], v["neg"])
+        )
+        rid = cursor.lastrowid
+
+        for t in v["topics"]:
+            conn.execute(
+                "INSERT INTO hot_topics (report_id, rank, topic, summary) VALUES (?,?,?,?)",
+                (rid, t["rank"], t["topic"], t["summary"])
+            )
+        for r in v["risks"]:
+            conn.execute(
+                "INSERT INTO risk_alerts (report_id, level, content, source) VALUES (?,?,?,?)",
+                (rid, r["level"], r["content"], r["source"])
+            )
+        for s in v["sentiments"]:
+            conn.execute(
+                "INSERT INTO sentiment_samples (report_id, sentiment, viewpoint, source) VALUES (?,?,?,?)",
+                (rid, s["sentiment"], s["viewpoint"], s["source"])
+            )
+        for a in v["actions"]:
+            conn.execute(
+                "INSERT INTO action_items (report_id, action_text) VALUES (?,?)",
+                (rid, a)
+            )
+        return rid
+
+
+def _insert_competitor_data(week_start, week_end, data_dict, summary):
+    """Insert competitor updates and weekly summary into the DB.
+    *data_dict* maps brand name -> list of (category, content, source, sentiment).
+    """
+    with get_db() as conn:
+        competitors = {
+            r["name"]: r["id"]
+            for r in conn.execute("SELECT * FROM competitors").fetchall()
+        }
+        for name, updates in data_dict.items():
+            cid = competitors.get(name)
+            if not cid:
+                continue
+            for cat, content, source, sent in updates:
+                conn.execute(
+                    """INSERT OR IGNORE INTO competitor_updates
+                       (competitor_id, week_start, week_end, category, content, source, sentiment)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (cid, week_start, week_end, cat, content, source, sent)
+                )
+
+        conn.execute(
+            """INSERT OR IGNORE INTO competitor_summaries (week_start, week_end, summary)
+               VALUES (?,?,?)""",
+            (week_start, week_end, summary)
+        )
+
+
+# ---------------------------------------------------------------------------
 # Seed mock data
 # ---------------------------------------------------------------------------
 def generate_mock_week(week_start_str, week_end_str, variant=0):
@@ -217,48 +297,7 @@ def generate_mock_week(week_start_str, week_end_str, variant=0):
         },
     ]
     v = variants[variant % len(variants)]
-
-    with get_db() as conn:
-        # Check if this week already exists (de-duplicate)
-        exists = conn.execute(
-            "SELECT id FROM weekly_reports WHERE week_start=? AND week_end=?",
-            (week_start_str, week_end_str)
-        ).fetchone()
-        if exists:
-            return exists["id"]
-
-        cursor = conn.execute(
-            """INSERT INTO weekly_reports 
-               (week_start, week_end, overall_summary, mention_count, 
-                mention_change, positive_pct, neutral_pct, negative_pct)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (week_start_str, week_end_str, v["summary"],
-             v["mention_count"], v["change"],
-             v["pos"], v["neu"], v["neg"])
-        )
-        rid = cursor.lastrowid
-
-        for t in v["topics"]:
-            conn.execute(
-                "INSERT INTO hot_topics (report_id, rank, topic, summary) VALUES (?,?,?,?)",
-                (rid, t["rank"], t["topic"], t["summary"])
-            )
-        for r in v["risks"]:
-            conn.execute(
-                "INSERT INTO risk_alerts (report_id, level, content, source) VALUES (?,?,?,?)",
-                (rid, r["level"], r["content"], r["source"])
-            )
-        for s in v["sentiments"]:
-            conn.execute(
-                "INSERT INTO sentiment_samples (report_id, sentiment, viewpoint, source) VALUES (?,?,?,?)",
-                (rid, s["sentiment"], s["viewpoint"], s["source"])
-            )
-        for a in v["actions"]:
-            conn.execute(
-                "INSERT INTO action_items (report_id, action_text) VALUES (?,?)",
-                (rid, a)
-            )
-        return rid
+    return _insert_weekly_report(week_start_str, week_end_str, v)
 
 
 def get_current_week():
@@ -277,6 +316,8 @@ def get_current_week():
 def ensure_current_week_data():
     """Auto-fill MOZA report + competitor data if current week is missing.
     Called on startup and by the scheduler — works even if server was asleep.
+
+    Tries the real-data crawler first; falls back to mock on failure.
     """
     ws, we = get_current_week()
     with get_db() as conn:
@@ -287,12 +328,24 @@ def ensure_current_week_data():
     if exists:
         return  # Already has data for this week
 
-    # Determine variant from existing report count (so it cycles naturally)
+    # --- Try real crawler ---
+    try:
+        from crawler import compile_moza_weekly_report
+        real_data = compile_moza_weekly_report(ws, we)
+        if real_data:
+            rid = _insert_weekly_report(ws, we, real_data)
+            app.logger.info(f"[AutoFill] Crawled real MOZA report for {ws} ~ {we} (id={rid})")
+            ensure_current_competitor_data(ws, we)
+            return
+        app.logger.warning("[Crawler] No real data found, falling back to mock")
+    except Exception as e:
+        app.logger.warning(f"[Crawler] MOZA crawl failed, falling back to mock: {e}")
+
+    # --- Fallback: mock data ---
     with get_db() as conn:
         total = conn.execute("SELECT COUNT(*) FROM weekly_reports").fetchone()[0]
-
     rid = generate_mock_week(ws, we, variant=total)
-    app.logger.info(f"[AutoFill] Generated MOZA report for {ws} ~ {we} (id={rid})")
+    app.logger.info(f"[AutoFill] Generated mock MOZA report for {ws} ~ {we} (id={rid})")
 
     # Also fill competitor data
     ensure_current_competitor_data(ws, we)
@@ -515,7 +568,10 @@ def get_competitor_mock_updates(variant=0):
 
 
 def ensure_current_competitor_data(week_start, week_end):
-    """Auto-fill competitor data for the given week if missing."""
+    """Auto-fill competitor data for the given week if missing.
+
+    Tries the real-data crawler first; falls back to mock on failure.
+    """
     with get_db() as conn:
         # Ensure competitor list exists
         existing = conn.execute("SELECT COUNT(*) FROM competitors").fetchone()[0]
@@ -538,31 +594,25 @@ def ensure_current_competitor_data(week_start, week_end):
         if cnt > 0:
             return
 
-        # Determine variant
+        # Determine variant (for mock fallback)
         total = conn.execute("SELECT COUNT(DISTINCT week_start) FROM competitor_updates").fetchone()[0]
 
+    # --- Try real crawler ---
+    try:
+        from crawler import compile_competitor_updates
+        real_data, real_summary = compile_competitor_updates(week_start, week_end)
+        if real_data is not None:
+            _insert_competitor_data(week_start, week_end, real_data, real_summary)
+            app.logger.info(f"[AutoFill] Crawled real competitor data for {week_start} ~ {week_end}")
+            return
+        app.logger.warning("[Crawler] No real competitor data found, falling back to mock")
+    except Exception as e:
+        app.logger.warning(f"[Crawler] Competitor crawl failed, falling back to mock: {e}")
+
+    # --- Fallback: mock data ---
     mock_data, summary = get_competitor_mock_updates(variant=total)
-
-    with get_db() as conn:
-        competitors = {r["name"]: r["id"] for r in conn.execute("SELECT * FROM competitors").fetchall()}
-        for name, updates in mock_data.items():
-            cid = competitors.get(name)
-            if cid:
-                for cat, content, source, sent in updates:
-                    conn.execute(
-                        """INSERT OR IGNORE INTO competitor_updates 
-                           (competitor_id, week_start, week_end, category, content, source, sentiment)
-                           VALUES (?,?,?,?,?,?,?)""",
-                        (cid, week_start, week_end, cat, content, source, sent)
-                    )
-
-        conn.execute(
-            """INSERT OR IGNORE INTO competitor_summaries (week_start, week_end, summary)
-               VALUES (?,?,?)""",
-            (week_start, week_end, summary)
-        )
-
-    app.logger.info(f"[AutoFill] Generated competitor data for {week_start} ~ {week_end}")
+    _insert_competitor_data(week_start, week_end, mock_data, summary)
+    app.logger.info(f"[AutoFill] Generated mock competitor data for {week_start} ~ {week_end}")
 
 
 def seed_competitor_mock_data():
@@ -879,9 +929,25 @@ def index():
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
+import threading
+
 init_db()
-seed_mock_data()
-seed_competitor_mock_data()
+
+
+def _bg_seed_data():
+    """Run data seeding in a background thread so the web server starts
+    listening immediately.  The crawler may take 30-60s on Render; running
+    it synchronously would block gunicorn startup and cause health-check
+    timeouts.
+    """
+    try:
+        seed_mock_data()
+        seed_competitor_mock_data()
+    except Exception as e:
+        app.logger.error(f"[Startup] Background seed failed: {e}")
+
+
+threading.Thread(target=_bg_seed_data, daemon=True).start()
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(weekly_refresh, "cron", day_of_week="mon", hour=9, minute=0,
