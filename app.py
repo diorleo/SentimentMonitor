@@ -46,6 +46,7 @@ def init_db():
                 neutral_pct   REAL DEFAULT 0,
                 negative_pct  REAL DEFAULT 0,
                 raw_data      TEXT,
+                data_source   TEXT DEFAULT 'mock',
                 created_at    TEXT DEFAULT (datetime('now','localtime')),
                 UNIQUE(week_start, week_end)
             );
@@ -112,6 +113,11 @@ def init_db():
                 UNIQUE(week_start, week_end)
             );
         """)
+        # Migration: add data_source column if missing (for existing DBs)
+        try:
+            conn.execute("SELECT data_source FROM weekly_reports LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE weekly_reports ADD COLUMN data_source TEXT DEFAULT 'mock'")
 
 
 def seed_competitors(conn):
@@ -151,8 +157,8 @@ def _insert_weekly_report(week_start_str, week_end_str, v):
         cursor = conn.execute(
             """INSERT INTO weekly_reports
                (week_start, week_end, overall_summary, mention_count,
-                mention_change, positive_pct, neutral_pct, negative_pct)
-               VALUES (?,?,?,?,?,?,?,?)""",
+                mention_change, positive_pct, neutral_pct, negative_pct, data_source)
+               VALUES (?,?,?,?,?,?,?,?, 'mock')""",
             (week_start_str, week_end_str, v["summary"],
              v["mention_count"], v["change"],
              v["pos"], v["neu"], v["neg"])
@@ -675,16 +681,20 @@ def api_reports():
         reports = conn.execute(
             "SELECT * FROM weekly_reports ORDER BY week_start DESC"
         ).fetchall()
-        # Auto-calculate mention_change if not provided
+        # Auto-calculate mention_change only between real-data reports
         report_list = []
         for i, r in enumerate(reports):
             r_dict = dict(r)
+            # Only calculate change if both current and previous are real data
             if i + 1 < len(reports):
-                prev_count = reports[i + 1]["mention_count"]
-                if prev_count and prev_count > 0:
+                prev = reports[i + 1]
+                if (r["data_source"] == "real" and prev["data_source"] == "real"
+                        and prev["mention_count"] and prev["mention_count"] > 0):
                     r_dict["mention_change"] = round(
-                        (r["mention_count"] - prev_count) / prev_count * 100, 1
+                        (r["mention_count"] - prev["mention_count"]) / prev["mention_count"] * 100, 1
                     )
+                elif r["data_source"] == "real" and prev["data_source"] != "real":
+                    r_dict["mention_change"] = 0  # Don't compare real vs mock
             report_list.append(r_dict)
     return jsonify(report_list)
 
@@ -771,7 +781,7 @@ def api_ingest():
             conn.execute(
                 """UPDATE weekly_reports SET 
                    overall_summary=?, mention_count=?, mention_change=?,
-                   positive_pct=?, neutral_pct=?, negative_pct=?
+                   positive_pct=?, neutral_pct=?, negative_pct=?, data_source='real'
                    WHERE id=?""",
                 (data["overall_summary"], data.get("mention_count", 0),
                  data.get("mention_change", 0), data.get("positive_pct", 0),
@@ -783,14 +793,27 @@ def api_ingest():
             cursor = conn.execute(
                 """INSERT INTO weekly_reports 
                    (week_start, week_end, overall_summary, mention_count,
-                    mention_change, positive_pct, neutral_pct, negative_pct)
-                   VALUES (?,?,?,?,?,?,?,?)""",
+                    mention_change, positive_pct, neutral_pct, negative_pct, data_source)
+                   VALUES (?,?,?,?,?,?,?,?, 'real')""",
                 (data["week_start"], data["week_end"], data["overall_summary"],
                  data.get("mention_count", 0), data.get("mention_change", 0),
                  data.get("positive_pct", 0), data.get("neutral_pct", 0),
                  data.get("negative_pct", 0))
             )
             rid = cursor.lastrowid
+
+        # Delete all mock reports (keep only real data)
+        mock_rows = conn.execute(
+            "SELECT id FROM weekly_reports WHERE data_source='mock'"
+        ).fetchall()
+        for mr in mock_rows:
+            conn.execute("DELETE FROM hot_topics WHERE report_id=?", (mr["id"],))
+            conn.execute("DELETE FROM risk_alerts WHERE report_id=?", (mr["id"],))
+            conn.execute("DELETE FROM sentiment_samples WHERE report_id=?", (mr["id"],))
+            conn.execute("DELETE FROM action_items WHERE report_id=?", (mr["id"],))
+            conn.execute("DELETE FROM weekly_reports WHERE id=?", (mr["id"],))
+        if mock_rows:
+            app.logger.info(f"[Ingest] Cleaned {len(mock_rows)} mock reports")
 
         for t in data.get("topics", []):
             conn.execute(

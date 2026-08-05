@@ -67,9 +67,9 @@ COMPETITOR_QUERIES = {
     "Fanatec": ["Fanatec sim racing", "Fanatec Podium CSL DD"],
     "Simagic": ["Simagic sim racing", "Simagic Alpha Mini"],
     "Thrustmaster": ["Thrustmaster sim racing wheel", "Thrustmaster T300 TS-XW"],
-    "PXN": ["PXN sim racing", "PXN V10 steering wheel"],
-    "WINCTRL": ["WINCTRL sim racing"],
-    "VIRPIL": ["VIRPIL sim racing joystick"],
+    "PXN": ["PXN sim racing wheel", "PXN V10 V12 steering wheel"],
+    "WINCTRL": ["WINCTRL sim racing", "WINDRIVE direct drive"],
+    "VIRPIL": ["VIRPIL hotas joystick", "VPC Constellation WarBRD"],
 }
 
 # Category keywords
@@ -95,6 +95,11 @@ _POSITIVE_WORDS = {
     "worth", "improve", "better", "win", "top", "leader", "impressive",
     "sturdy", "refined", "upgrade", "innovative", "competitive", "outstanding",
     "incredible", "superb", "remarkable", "flawless", "reliable",
+    # Sim racing domain positives
+    "partnership", "official", "licensed", "deal", "collaboration",
+    "launch", "reveal", "debut", "announce", "expand", "growth",
+    "breakthrough", "award", "pro", "ultra", "upgraded", "enhanced",
+    "renews", "endorsement", "exclusive",
 }
 _NEGATIVE_WORDS = {
     "bad", "terrible", "awful", "hate", "worst", "broken", "issue",
@@ -103,6 +108,9 @@ _NEGATIVE_WORDS = {
     "defect", "return", "refund", "complaint", "downside", "lack",
     "inferior", "unreliable", "mediocre", "subpar", "glitch", "wobble",
     "unacceptable", "scam", "ripoff",
+    # Sim racing domain negatives
+    "recall", "lawsuit", "bankrupt", "layoff", "controversy", "backlash",
+    "shortage", "delay", "cancel", "discontinue", "obsolete", "outdated",
 }
 
 
@@ -110,21 +118,40 @@ _NEGATIVE_WORDS = {
 # Sentiment analysis
 # ---------------------------------------------------------------------------
 def analyze_sentiment(text):
-    """Return (label, compound_score). Uses VADER if available."""
+    """Return (label, compound_score). Uses VADER if available.
+
+    For news headlines (which VADER tends to classify as neutral),
+    applies domain keyword boosting to detect sentimentally charged content.
+    """
     if not text or not text.strip():
         return "neutral", 0.0
+
+    text_lower = text.lower()
+    words = set(re.findall(r"\w+", text_lower))
 
     if _vader is not None:
         scores = _vader.polarity_scores(text)
         compound = scores["compound"]
+
+        # Domain keyword boost: news headlines are often neutral to VADER
+        # but contain sentimentally meaningful business/product signals
+        pos_domain = len(words & _POSITIVE_WORDS)
+        neg_domain = len(words & _NEGATIVE_WORDS)
+
         if compound >= 0.05:
             return "positive", compound
         if compound <= -0.05:
             return "negative", compound
+
+        # VADER says neutral — check domain keywords
+        if pos_domain > neg_domain and pos_domain >= 2:
+            return "positive", 0.3
+        if neg_domain > pos_domain and neg_domain >= 2:
+            return "negative", -0.3
+
         return "neutral", compound
 
     # Keyword fallback
-    words = set(re.findall(r"\w+", text.lower()))
     pos = len(words & _POSITIVE_WORDS)
     neg = len(words & _NEGATIVE_WORDS)
     total = pos + neg
@@ -196,6 +223,41 @@ def _strip_html(text):
     return re.sub(r"<[^>]+>", "", text).strip()
 
 
+def _clean_text(text):
+    """Clean HTML entities and whitespace from text."""
+    if not text:
+        return ""
+    # Decode common HTML entities
+    entities = {
+        "&nbsp;": " ",
+        "&amp;": "&",
+        "&lt;": "<",
+        "&gt;": ">",
+        "&quot;": '"',
+        "&apos;": "'",
+        "&#39;": "'",
+        "&mdash;": "—",
+        "&ndash;": "–",
+        "&hellip;": "…",
+    }
+    for entity, replacement in entities.items():
+        text = text.replace(entity, replacement)
+    # Decode numeric entities
+    text = re.sub(r"&#(\d+);", lambda m: chr(int(m.group(1))), text)
+    text = re.sub(r"&#x([0-9a-fA-F]+);", lambda m: chr(int(m.group(1), 16)), text)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _clean_title(title):
+    """Clean a news title: remove HTML entities and trailing source suffix."""
+    title = _clean_text(title)
+    # Remove trailing source pattern like " - games.gg" or " | BoxThisLap"
+    title = re.sub(r"\s*[-|]\s*[A-Za-z0-9\s.]+$", "", title)
+    return title.strip()
+
+
 def _truncate(text, max_len=200):
     """Truncate text to max_len characters."""
     if len(text) <= max_len:
@@ -247,7 +309,8 @@ def parse_google_news_rss(rss_content, days=7):
     for item in root.findall(".//item"):
         title = item.findtext("title", "") or ""
         raw_desc = item.findtext("description", "") or ""
-        desc = _strip_html(raw_desc)
+        desc = _clean_text(_strip_html(raw_desc))
+        title = _clean_text(title)
         pub_date_str = item.findtext("pubDate", "") or ""
         source = item.findtext("source", "") or "Google News"
         link = item.findtext("link", "") or ""
@@ -359,22 +422,30 @@ def compile_moza_report(week_start, week_end):
     # Extract topics (top 5 by recency)
     topics = []
     for i, item in enumerate(all_news[:5]):
+        clean_title = _clean_title(item["title"])
         topics.append({
             "rank": i + 1,
-            "topic": _truncate(item["title"], 120),
-            "summary": _truncate(item["description"] or item["title"], 180),
+            "topic": _truncate(clean_title, 120),
+            "summary": _truncate(item["description"] or clean_title, 180),
         })
 
-    # Extract sentiment samples (most strongly worded)
+    # Extract sentiment samples — deduplicate by content, pick diverse sentiments
     scored_items = []
+    seen_texts = set()
     for item, (label, score) in zip(all_news, sentiments):
-        text = f"{item['title']} {item['description']}"
+        text = _clean_text(f"{item['title']} {item['description']}")
+        # Deduplicate by first 80 chars
+        text_key = text[:80].lower()
+        if text_key in seen_texts:
+            continue
+        seen_texts.add(text_key)
         scored_items.append((label, abs(score), text, item["source"]))
 
     scored_items.sort(key=lambda x: x[1], reverse=True)
 
     samples = []
     seen_labels = set()
+    # First pass: pick one of each sentiment type
     for label, _, text, source in scored_items:
         if label not in seen_labels:
             samples.append({
@@ -385,6 +456,18 @@ def compile_moza_report(week_start, week_end):
             seen_labels.add(label)
         if len(samples) >= 3:
             break
+    # If we don't have 3 yet, fill with remaining items
+    if len(samples) < 3:
+        for label, _, text, source in scored_items:
+            if len(samples) >= 3:
+                break
+            if any(s["viewpoint"][:80] == text[:80] for s in samples):
+                continue
+            samples.append({
+                "sentiment": label,
+                "viewpoint": _truncate(text, 200),
+                "source": source,
+            })
 
     # Generate risks
     risks = []
@@ -409,13 +492,21 @@ def compile_moza_report(week_start, week_end):
 
     # Generate actions (must be list of {"action_text": "..."} objects)
     actions = []
-    if pos_pct >= 60 and topics:
-        actions.append({"action_text": f'利用"{topics[0]["topic"]}"的正面热度，加强社交媒体营销'})
+    if pos_pct >= 50 and topics:
+        actions.append({"action_text": f'借助"{topics[0]["topic"]}"的正面热度，在社交媒体加大传播力度，扩大品牌声量'})
     if neg_pct >= 15 and topics:
-        actions.append({"action_text": f'针对"{topics[0]["topic"]}"相关负面反馈，建议产品团队跟进'})
+        actions.append({"action_text": f'针对"{topics[0]["topic"]}"相关负面反馈，建议产品团队跟进并制定改善方案'})
     if not actions:
-        actions.append({"action_text": "持续监测社区舆情动态，保持品牌声量稳定"})
-    actions.append({"action_text": "定期与社区互动，收集用户反馈用于产品迭代"})
+        # Generate data-driven actions based on actual topics
+        if topics:
+            actions.append({"action_text": f'关注"{topics[0]["topic"]}"相关讨论动态，评估对品牌口碑的潜在影响'})
+        else:
+            actions.append({"action_text": "持续监测社区舆情动态，保持品牌声量稳定"})
+    # Add competitive context if competitor data is available
+    if topics and any("Fanatec" in t["topic"] or "Simagic" in t["topic"] for t in topics):
+        actions.append({"action_text": "关注竞品在相关话题中的动向，及时调整市场策略"})
+    else:
+        actions.append({"action_text": "定期与社区互动，收集用户反馈用于产品迭代"})
 
     # Generate summary
     if pos_pct > 50:
@@ -492,10 +583,16 @@ def compile_competitor_data(week_start, week_end):
 
         # Process top items
         updates = []
+        seen_content = set()
         for item in all_items[:4]:  # max 4 per brand
-            text = f"{item['title']} {item['description']}"
+            text = _clean_text(f"{item['title']} {item['description']}")
             if not text.strip():
                 continue
+            # Deduplicate by first 80 chars
+            content_key = text[:80].lower()
+            if content_key in seen_content:
+                continue
+            seen_content.add(content_key)
             category = _categorize_update(text)
             label, _ = analyze_sentiment(text)
             source = item.get("source", "Google News")
@@ -512,10 +609,11 @@ def compile_competitor_data(week_start, week_end):
     parts = []
     for brand, updates in result.items():
         if not updates:
+            parts.append(f"{brand}本周暂无显著公开动态")
             continue
         pos = sum(1 for _, _, _, s in updates if s == "positive")
         neg = sum(1 for _, _, _, s in updates if s == "negative")
-        notable = updates[0][1][:80] if updates else ""
+        notable = _clean_text(updates[0][1])[:80] if updates else ""
 
         if pos > neg:
             tone = "社区反馈偏正面"
