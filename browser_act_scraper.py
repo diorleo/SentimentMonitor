@@ -434,6 +434,8 @@ def compile_moza_report(week_start, week_end):
     seen_texts = set()
     for item, (label, score) in zip(all_news, sentiments):
         text = _clean_text(f"{item['title']} {item['description']}")
+        # Remove source suffix from text (e.g., "Article Title - Source Name")
+        text = _clean_title(text)
         # Deduplicate by first 80 chars
         text_key = text[:80].lower()
         if text_key in seen_texts:
@@ -586,6 +588,8 @@ def compile_competitor_data(week_start, week_end):
         seen_content = set()
         for item in all_items[:4]:  # max 4 per brand
             text = _clean_text(f"{item['title']} {item['description']}")
+            # Remove source suffix from text
+            text = _clean_title(text)
             if not text.strip():
                 continue
             # Deduplicate by first 80 chars
