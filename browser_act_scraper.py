@@ -1,8 +1,11 @@
 """
 BrowserAct-enhanced scraper for MOZA Sentiment Monitor.
 
-Uses BrowserAct's stealth-extract to fetch Google News RSS feeds with
-anti-bot bypass, parse them, and push real data to the Render dashboard.
+Multi-source data collection:
+  1. Google News RSS (via BrowserAct stealth-extract)
+  2. Bing News RSS (via direct requests)
+  3. Sim Racing news sites RSS (TraxionGG, GTPlanet, SimRacing604 — via direct requests)
+  4. Reddit RSS (via BrowserAct stealth-extract, .rss endpoint)
 
 Usage:
     python browser_act_scraper.py                    # Scrape and push to Render
@@ -15,7 +18,7 @@ Requires:
     - requests for pushing data to Render
 
 Architecture:
-    Google News RSS → BrowserAct stealth-extract → parse XML → VADER sentiment
+    Multiple RSS sources → parse XML → VADER sentiment
     → format as dashboard JSON → POST to Render /api/ingest + /api/competitors/ingest
 """
 import json
@@ -70,6 +73,39 @@ COMPETITOR_QUERIES = {
     "PXN": ["PXN sim racing wheel", "PXN V10 V12 steering wheel"],
     "WINCTRL": ["WINCTRL sim racing", "WINDRIVE direct drive"],
     "VIRPIL": ["VIRPIL hotas joystick", "VPC Constellation WarBRD"],
+}
+
+# Bing News RSS — same queries as Google News, different search engine
+# (returns different results, expands coverage)
+
+# Reddit RSS — uses .rss endpoint (different from .json which gets 403)
+REDDIT_SUBS = "simracing+simracingdevices"
+REDDIT_RSS_BASE = "https://www.reddit.com/r/{subs}/search.rss"
+
+# Sim Racing news sites — direct RSS feeds (no BrowserAct needed)
+SIM_RACING_FEEDS = {
+    "TraxionGG": {
+        "feed": "https://traxion.gg/feed/",
+        "search_template": "https://traxion.gg/?s={query}&feed=rss2",
+    },
+    "GTPlanet": {
+        "feed": "https://www.gtplanet.net/forum/forums/-/index.rss",
+        # GTPlanet search RSS is Cloudflare-blocked, use feed + filter
+    },
+    "SimRacing604": {
+        "feed": "https://simracing604.com/feed/",
+        # No search endpoint, use feed + filter
+    },
+}
+
+# Direct request settings (for feeds that don't need BrowserAct)
+DIRECT_RSS_TIMEOUT = 15
+DIRECT_RSS_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
 }
 
 # Category keywords
@@ -362,6 +398,248 @@ def crawl_google_news_via_browseract(query, days=7):
 
 
 # ---------------------------------------------------------------------------
+# Direct RSS fetch (no BrowserAct needed — for feeds that work with requests)
+# ---------------------------------------------------------------------------
+def fetch_rss_direct(url, source_name="RSS"):
+    """Fetch RSS feed content via direct requests.
+
+    Returns the raw content string, or None on failure.
+    """
+    try:
+        resp = requests.get(url, headers=DIRECT_RSS_HEADERS, timeout=DIRECT_RSS_TIMEOUT)
+        if resp.status_code != 200:
+            logger.warning("Direct RSS fetch failed for %s: HTTP %d", source_name, resp.status_code)
+            return None
+        return resp.text
+    except Exception as e:
+        logger.warning("Direct RSS fetch error for %s: %s", source_name, e)
+        return None
+
+
+def parse_generic_rss(rss_content, brand_keywords=None, days=7, source_name="RSS"):
+    """Parse standard RSS 2.0 XML content into news items.
+
+    Args:
+        rss_content: Raw RSS XML string
+        brand_keywords: Optional list of keywords to filter items (case-insensitive).
+                       If None, returns all items.
+        days: Only include items from the past N days.
+        source_name: Name to use as the source for items without a <source> tag.
+
+    Returns list of dicts: {title, description, pub_date, source, link}
+    """
+    if not rss_content:
+        return []
+
+    # Handle stealth-extract preamble
+    rss_start = rss_content.find("<rss")
+    if rss_start == -1:
+        rss_start = rss_content.find("<?xml")
+    if rss_start == -1:
+        rss_start = rss_content.find("<feed")  # Atom format
+    if rss_start > 0:
+        rss_content = rss_content[rss_start:]
+    elif rss_start == -1:
+        logger.warning("No RSS XML found in content from %s (first 200 chars): %s",
+                       source_name, rss_content[:200])
+        return []
+
+    # Fix unescaped & characters
+    rss_content = re.sub(r'&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)', '&amp;', rss_content)
+
+    try:
+        root = ET.fromstring(rss_content)
+    except ET.ParseError as e:
+        logger.warning("Failed to parse RSS XML from %s: %s", source_name, e)
+        return []
+
+    cutoff = datetime.now() - timedelta(days=days)
+    items = []
+    keywords_lower = [k.lower() for k in brand_keywords] if brand_keywords else None
+
+    # Handle both RSS 2.0 (<item>) and Atom (<entry>) formats
+    entries = root.findall(".//item")
+    is_atom = False
+    if not entries:
+        entries = root.findall(".//{http://www.w3.org/2005/Atom}entry")
+        is_atom = bool(entries)
+
+    for entry in entries:
+        if is_atom:
+            # Atom format
+            title_elem = entry.find("{http://www.w3.org/2005/Atom}title")
+            title = _clean_text(title_elem.text if title_elem is not None else "")
+            summary_elem = entry.find("{http://www.w3.org/2005/Atom}summary") or \
+                          entry.find("{http://www.w3.org/2005/Atom}content")
+            desc = _clean_text(_strip_html(summary_elem.text if summary_elem is not None else ""))
+            pub_elem = entry.find("{http://www.w3.org/2005/Atom}published") or \
+                      entry.find("{http://www.w3.org/2005/Atom}updated")
+            pub_date_str = pub_elem.text if pub_elem is not None else ""
+            link_elem = entry.find("{http://www.w3.org/2005/Atom}link")
+            link = link_elem.get("href", "") if link_elem is not None else ""
+            source = source_name
+        else:
+            # RSS 2.0 format
+            title = _clean_text(entry.findtext("title", "") or "")
+            raw_desc = entry.findtext("description", "") or ""
+            desc = _clean_text(_strip_html(raw_desc))
+            pub_date_str = entry.findtext("pubDate", "") or ""
+            source = entry.findtext("source", "") or source_name
+            link = entry.findtext("link", "") or ""
+
+        if not title:
+            continue
+
+        # Brand keyword filter
+        combined = f"{title} {desc}".lower()
+        if keywords_lower:
+            if not any(kw in combined for kw in keywords_lower):
+                continue
+
+        # Date filter
+        pub_date = None
+        if pub_date_str:
+            try:
+                pub_date = parsedate_to_datetime(pub_date_str)
+                if pub_date and pub_date.tzinfo:
+                    pub_date = pub_date.replace(tzinfo=None)
+            except Exception:
+                # Try ISO format (Atom)
+                try:
+                    pub_date = datetime.fromisoformat(pub_date_str.replace("Z", "+00:00"))
+                    if pub_date and pub_date.tzinfo:
+                        pub_date = pub_date.replace(tzinfo=None)
+                except Exception:
+                    pass
+        if pub_date and pub_date < cutoff:
+            continue
+
+        items.append({
+            "title": title,
+            "description": desc,
+            "pub_date": pub_date_str,
+            "source": source,
+            "link": link,
+        })
+
+    return items
+
+
+# ---------------------------------------------------------------------------
+# Bing News RSS (via direct requests)
+# ---------------------------------------------------------------------------
+def crawl_bing_news(query, days=7):
+    """Fetch Bing News RSS for a search query.
+
+    Returns list of news items.
+    """
+    encoded = requests.utils.quote(query)
+    url = f"https://www.bing.com/news/search?q={encoded}&format=rss"
+
+    logger.info("Fetching Bing News: %s", query)
+    content = fetch_rss_direct(url, source_name="Bing News")
+    if not content:
+        return []
+
+    items = parse_generic_rss(content, days=days, source_name="Bing News")
+    logger.info("Bing News: got %d items for '%s'", len(items), query)
+    return items
+
+
+# ---------------------------------------------------------------------------
+# Sim Racing news sites RSS (via direct requests)
+# ---------------------------------------------------------------------------
+def crawl_sim_racing_sites(brand, days=7):
+    """Fetch from sim racing news sites, filtered by brand keywords.
+
+    Args:
+        brand: Brand name (e.g., "MOZA", "Fanatec") for keyword filtering.
+        days: Only include items from the past N days.
+
+    Returns list of news items.
+    """
+    # Build brand keywords for filtering
+    brand_keywords = [brand]
+    # Add common variations
+    if brand == "MOZA":
+        brand_keywords.extend(["MOZA Racing", "R5", "R9", "R12", "R16"])
+    brand_keywords_lower = [k.lower() for k in brand_keywords]
+
+    all_items = []
+
+    for site_name, feed_config in SIM_RACING_FEEDS.items():
+        # Try search endpoint first (if available), then fall back to general feed
+        urls_to_try = []
+
+        if "search_template" in feed_config:
+            search_url = feed_config["search_template"].format(query=brand)
+            urls_to_try.append((search_url, f"{site_name} search"))
+
+        urls_to_try.append((feed_config["feed"], f"{site_name} feed"))
+
+        for url, label in urls_to_try:
+            logger.info("Fetching %s: %s", label, brand)
+            content = fetch_rss_direct(url, source_name=label)
+            if not content:
+                continue
+
+            # For search endpoints, no need to filter by brand
+            if "search" in label:
+                items = parse_generic_rss(content, days=days, source_name=site_name)
+            else:
+                # For general feeds, filter by brand keywords
+                items = parse_generic_rss(
+                    content, brand_keywords=brand_keywords,
+                    days=days, source_name=site_name
+                )
+
+            if items:
+                logger.info("%s: got %d items for '%s'", site_name, len(items), brand)
+                all_items.extend(items)
+
+            time.sleep(0.5)  # brief pause
+
+    return all_items
+
+
+# ---------------------------------------------------------------------------
+# Reddit RSS (via BrowserAct stealth-extract — .rss endpoint avoids 403)
+# ---------------------------------------------------------------------------
+def crawl_reddit_rss(query, days=7):
+    """Fetch Reddit search RSS via BrowserAct stealth-extract.
+
+    Uses .rss endpoint which is different from the .json endpoint that gets 403.
+    Searches in r/simracing + r/simracingdevices.
+
+    Returns list of news items.
+    """
+    encoded = requests.utils.quote(query)
+    url = (
+        f"https://www.reddit.com/r/{REDDIT_SUBS}/search.rss"
+        f"?q={encoded}&restrict_sr=1&sort=new&t=week&limit=25"
+    )
+
+    logger.info("Fetching Reddit RSS: %s", query)
+    content = stealth_extract(url)
+
+    if not content:
+        # Fallback: try direct request (may get 429 but worth trying)
+        logger.info("BrowserAct failed for Reddit, trying direct request...")
+        content = fetch_rss_direct(url, source_name="Reddit RSS")
+
+    if not content:
+        logger.warning("No content from Reddit for: %s", query)
+        return []
+
+    items = parse_generic_rss(
+        content, brand_keywords=[query],
+        days=days, source_name="Reddit"
+    )
+    logger.info("Reddit RSS: got %d items for '%s'", len(items), query)
+    return items
+
+
+# ---------------------------------------------------------------------------
 # Categorization
 # ---------------------------------------------------------------------------
 def _categorize_update(text):
@@ -378,7 +656,13 @@ def _categorize_update(text):
 # MOZA report compilation
 # ---------------------------------------------------------------------------
 def compile_moza_report(week_start, week_end):
-    """Scrape Google News for MOZA and compile into weekly report format.
+    """Scrape multiple sources for MOZA and compile into weekly report format.
+
+    Data sources (in order):
+      1. Google News RSS (via BrowserAct stealth-extract)
+      2. Bing News RSS (via direct requests)
+      3. Sim Racing news sites (TraxionGG, GTPlanet, SimRacing604)
+      4. Reddit RSS (via BrowserAct stealth-extract)
 
     Returns dict matching dashboard's expected format, or None.
     """
@@ -386,7 +670,9 @@ def compile_moza_report(week_start, week_end):
 
     all_news = []
     seen_titles = set()
+    active_sources = set()
 
+    # --- 1. Google News (via BrowserAct) ---
     for query in MOZA_QUERIES:
         items = crawl_google_news_via_browseract(query, days=7)
         for item in items:
@@ -394,11 +680,44 @@ def compile_moza_report(week_start, week_end):
             if title not in seen_titles:
                 seen_titles.add(title)
                 all_news.append(item)
-        time.sleep(1)  # brief pause between calls
+                active_sources.add("Google News")
+        time.sleep(1)
+
+    # --- 2. Bing News (via direct requests) ---
+    for query in MOZA_QUERIES:
+        items = crawl_bing_news(query, days=7)
+        for item in items:
+            title = item["title"]
+            if title not in seen_titles:
+                seen_titles.add(title)
+                all_news.append(item)
+                active_sources.add("Bing News")
+        time.sleep(0.5)
+
+    # --- 3. Sim Racing news sites ---
+    sr_items = crawl_sim_racing_sites("MOZA", days=7)
+    for item in sr_items:
+        title = item["title"]
+        if title not in seen_titles:
+            seen_titles.add(title)
+            all_news.append(item)
+            active_sources.add(item.get("source", "Sim Racing News"))
+
+    # --- 4. Reddit RSS (via BrowserAct) ---
+    reddit_items = crawl_reddit_rss("MOZA", days=7)
+    for item in reddit_items:
+        title = item["title"]
+        if title not in seen_titles:
+            seen_titles.add(title)
+            all_news.append(item)
+            active_sources.add("Reddit")
 
     if not all_news:
-        logger.warning("No MOZA news found from Google News")
+        logger.warning("No MOZA news found from any source")
         return None
+
+    logger.info("Total unique MOZA mentions: %d from sources: %s",
+                len(all_news), ", ".join(sorted(active_sources)))
 
     # Sort by date (newest first)
     all_news.sort(key=lambda x: x.get("pub_date", ""), reverse=True)
@@ -472,18 +791,19 @@ def compile_moza_report(week_start, week_end):
             })
 
     # Generate risks
+    source_desc = "、".join(sorted(active_sources)) if active_sources else "多渠道"
     risks = []
     if neg_pct >= 20:
         risks.append({
             "level": "red",
             "content": f"负面讨论占比达 {neg_pct}%，需立即关注并制定应对方案",
-            "source": "Google News监控",
+            "source": "全渠道监控",
         })
     elif neg_pct >= 10:
         risks.append({
             "level": "yellow",
             "content": f"负面讨论占比 {neg_pct}%，建议持续关注社区反馈",
-            "source": "Google News监控",
+            "source": "全渠道监控",
         })
     else:
         risks.append({
@@ -519,7 +839,8 @@ def compile_moza_report(week_start, week_end):
         sentiment_desc = "相对中性"
 
     summary = (
-        f"本周 MOZA 舆情共监测到 {total} 条提及，来源包括 Google News。"
+        f"本周 MOZA 舆情共监测到 {total} 条提及，"
+        f"来源包括 {source_desc}。"
         f"整体情绪{sentiment_desc}，"
         f"正面占比 {pos_pct}%，中性占比 {neu_pct}%，负面占比 {neg_pct}%。"
     )
@@ -555,7 +876,13 @@ def compile_moza_report(week_start, week_end):
 # Competitor data compilation
 # ---------------------------------------------------------------------------
 def compile_competitor_data(week_start, week_end):
-    """Scrape Google News for competitors and compile into updates format.
+    """Scrape multiple sources for competitors and compile into updates format.
+
+    Data sources per brand:
+      1. Google News RSS (via BrowserAct)
+      2. Bing News RSS (via direct requests)
+      3. Sim Racing news sites (TraxionGG, GTPlanet, SimRacing604)
+      4. Reddit RSS (via BrowserAct)
 
     Returns (data_dict, summary_string).
     """
@@ -567,6 +894,7 @@ def compile_competitor_data(week_start, week_end):
         all_items = []
         seen_titles = set()
 
+        # 1. Google News
         for query in queries:
             items = crawl_google_news_via_browseract(query, days=7)
             for item in items:
@@ -575,10 +903,35 @@ def compile_competitor_data(week_start, week_end):
                     all_items.append(item)
             time.sleep(1)
 
+        # 2. Bing News
+        for query in queries:
+            items = crawl_bing_news(query, days=7)
+            for item in items:
+                if item["title"] not in seen_titles:
+                    seen_titles.add(item["title"])
+                    all_items.append(item)
+            time.sleep(0.5)
+
+        # 3. Sim Racing news sites
+        sr_items = crawl_sim_racing_sites(brand, days=7)
+        for item in sr_items:
+            if item["title"] not in seen_titles:
+                seen_titles.add(item["title"])
+                all_items.append(item)
+
+        # 4. Reddit RSS
+        reddit_items = crawl_reddit_rss(brand, days=7)
+        for item in reddit_items:
+            if item["title"] not in seen_titles:
+                seen_titles.add(item["title"])
+                all_items.append(item)
+
         if not all_items:
             result[brand] = []
-            logger.info("%s: no news found", brand)
+            logger.info("%s: no news found from any source", brand)
             continue
+
+        logger.info("%s: %d total unique items", brand, len(all_items))
 
         # Sort by date
         all_items.sort(key=lambda x: x.get("pub_date", ""), reverse=True)

@@ -1,9 +1,11 @@
 """
 Real data crawler for MOZA Sentiment Monitor.
 
-Collects brand mention data from:
+Collects brand mention data from multiple sources:
   - Reddit (r/simracing + r/simracingdevices) via public JSON API
   - Google News via RSS feed
+  - Bing News via RSS feed
+  - Sim Racing news sites (TraxionGG, GTPlanet, SimRacing604) via RSS
 
 Performs sentiment analysis (VADER if available, keyword-based fallback)
 and formats data into the dashboard's expected structure.
@@ -98,6 +100,20 @@ MAX_PER_BRAND = 4     # max updates per competitor per week
 TOTAL_BUDGET = 80     # max seconds for a full crawl (keeps Render startup under timeout)
 
 REDDIT_SUBS = "simracing+simracingdevices"
+
+# Sim Racing news sites — direct RSS feeds
+SIM_RACING_FEEDS = {
+    "TraxionGG": {
+        "feed": "https://traxion.gg/feed/",
+        "search_template": "https://traxion.gg/?s={query}&feed=rss2",
+    },
+    "GTPlanet": {
+        "feed": "https://www.gtplanet.net/forum/forums/-/index.rss",
+    },
+    "SimRacing604": {
+        "feed": "https://simracing604.com/feed/",
+    },
+}
 
 # Search queries
 MOZA_QUERY = "MOZA"
@@ -261,6 +277,136 @@ def crawl_google_news(query, days=7):
     except Exception as e:
         logger.warning("Google News crawl failed for '%s': %s", query, e)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Bing News crawler
+# ---------------------------------------------------------------------------
+def crawl_bing_news(query, days=7):
+    """Search Bing News RSS for items matching *query* within the past *days*.
+
+    Returns a list of dicts: {title, description, pub_date, source, link}
+    """
+    encoded = requests.utils.quote(query)
+    url = f"https://www.bing.com/news/search?q={encoded}&format=rss"
+    try:
+        resp = requests.get(
+            url,
+            headers={"User-Agent": USER_AGENT},
+            timeout=REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+        cutoff = datetime.now() - timedelta(days=days)
+        items = []
+        for item in root.findall(".//item"):
+            title = item.findtext("title", "") or ""
+            raw_desc = item.findtext("description", "") or ""
+            desc = _strip_html(raw_desc)
+            pub_date_str = item.findtext("pubDate", "") or ""
+            source = item.findtext("source", "") or "Bing News"
+            link = item.findtext("link", "") or ""
+
+            pub_date = None
+            if pub_date_str:
+                try:
+                    pub_date = parsedate_to_datetime(pub_date_str)
+                    if pub_date and pub_date.tzinfo:
+                        pub_date = pub_date.replace(tzinfo=None)
+                except Exception:
+                    pass
+            if pub_date and pub_date < cutoff:
+                continue
+
+            items.append({
+                "title": title,
+                "description": desc,
+                "pub_date": pub_date_str,
+                "source": source,
+                "link": link,
+            })
+        logger.info("Bing News: found %d items for '%s'", len(items), query)
+        return items
+    except Exception as e:
+        logger.warning("Bing News crawl failed for '%s': %s", query, e)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Sim Racing news sites crawler
+# ---------------------------------------------------------------------------
+def crawl_sim_racing_sites(brand, days=7):
+    """Fetch from sim racing news sites RSS feeds, filtered by brand keywords.
+
+    Args:
+        brand: Brand name (e.g., "MOZA", "Fanatec") for keyword filtering.
+        days: Only include items from the past N days.
+
+    Returns a list of dicts: {title, description, pub_date, source, link}
+    """
+    brand_keywords = [brand.lower()]
+    if brand == "MOZA":
+        brand_keywords.extend(["moza racing", "r5", "r9", "r12", "r16"])
+
+    cutoff = datetime.now() - timedelta(days=days)
+    all_items = []
+
+    for site_name, feed_config in SIM_RACING_FEEDS.items():
+        urls_to_try = []
+        if "search_template" in feed_config:
+            search_url = feed_config["search_template"].format(query=brand)
+            urls_to_try.append((search_url, True))  # True = is search (no filter needed)
+        urls_to_try.append((feed_config["feed"], False))  # False = general feed (needs filtering)
+
+        for url, is_search in urls_to_try:
+            try:
+                resp = requests.get(
+                    url,
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=REQUEST_TIMEOUT,
+                )
+                if resp.status_code != 200:
+                    continue
+                root = ET.fromstring(resp.content)
+                for item in root.findall(".//item"):
+                    title = item.findtext("title", "") or ""
+                    raw_desc = item.findtext("description", "") or ""
+                    desc = _strip_html(raw_desc)
+                    pub_date_str = item.findtext("pubDate", "") or ""
+                    source = site_name
+                    link = item.findtext("link", "") or ""
+
+                    # Brand keyword filter (only for general feeds, not search endpoints)
+                    if not is_search:
+                        combined = (title + " " + desc).lower()
+                        if not any(kw in combined for kw in brand_keywords):
+                            continue
+
+                    # Date filter
+                    pub_date = None
+                    if pub_date_str:
+                        try:
+                            pub_date = parsedate_to_datetime(pub_date_str)
+                            if pub_date and pub_date.tzinfo:
+                                pub_date = pub_date.replace(tzinfo=None)
+                        except Exception:
+                            pass
+                    if pub_date and pub_date < cutoff:
+                        continue
+
+                    all_items.append({
+                        "title": title,
+                        "description": desc,
+                        "pub_date": pub_date_str,
+                        "source": source,
+                        "link": link,
+                    })
+                time.sleep(0.5)
+            except Exception as e:
+                logger.warning("%s crawl failed for '%s': %s", site_name, brand, e)
+
+    logger.info("Sim Racing sites: found %d items for '%s'", len(all_items), brand)
+    return all_items
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +619,9 @@ def _generate_competitor_summary(comp_data):
 # Public API — called by app.py
 # ---------------------------------------------------------------------------
 def compile_moza_weekly_report(week_start, week_end):
-    """Crawl real data and compile into the MOZA weekly report format.
+    """Crawl real data from multiple sources and compile into the MOZA weekly report.
+
+    Data sources: Reddit, Google News, Bing News, Sim Racing news sites.
 
     Returns a dict with keys matching generate_mock_week() variant structure,
     or None if no data was found from any source.
@@ -483,6 +631,7 @@ def compile_moza_weekly_report(week_start, week_end):
     all_posts = []
     all_news = []
     sources = set()
+    crawl_start = time.time()
 
     # --- Reddit ---
     posts = crawl_reddit(MOZA_QUERY, limit=25)
@@ -496,10 +645,27 @@ def compile_moza_weekly_report(week_start, week_end):
     if news:
         all_news.extend(news)
         sources.add("Google News")
+    time.sleep(NEWS_DELAY)
+
+    # --- Bing News ---
+    if time.time() - crawl_start < TOTAL_BUDGET:
+        bing_news = crawl_bing_news("MOZA racing sim wheel", days=7)
+        if bing_news:
+            all_news.extend(bing_news)
+            sources.add("Bing News")
+        time.sleep(0.5)
+
+    # --- Sim Racing news sites ---
+    if time.time() - crawl_start < TOTAL_BUDGET:
+        sr_news = crawl_sim_racing_sites("MOZA", days=7)
+        if sr_news:
+            all_news.extend(sr_news)
+            for item in sr_news:
+                sources.add(item.get("source", "Sim Racing News"))
 
     total_items = len(all_posts) + len(all_news)
     if total_items == 0:
-        logger.warning("[Crawler] No data found from Reddit or Google News")
+        logger.warning("[Crawler] No data found from any source")
         return None
 
     # --- Sentiment analysis ---
@@ -566,6 +732,17 @@ def compile_competitor_updates(week_start, week_end):
 
         news = crawl_google_news(f"{brand} sim racing", days=7)
         time.sleep(NEWS_DELAY)
+
+        # Bing News
+        bing_news = crawl_bing_news(f"{brand} sim racing", days=7)
+        if bing_news:
+            news.extend(bing_news)
+        time.sleep(0.5)
+
+        # Sim Racing news sites
+        sr_news = crawl_sim_racing_sites(brand, days=7)
+        if sr_news:
+            news.extend(sr_news)
 
         all_items = posts + news
 
