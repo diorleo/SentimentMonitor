@@ -2,10 +2,10 @@
 BrowserAct-enhanced scraper for MOZA Sentiment Monitor.
 
 Multi-source data collection:
-  1. Google News RSS (via BrowserAct stealth-extract)
+  1. Google News RSS (direct requests, BrowserAct fallback)
   2. Bing News RSS (via direct requests)
   3. Sim Racing news sites RSS (TraxionGG, GTPlanet, SimRacing604 — via direct requests)
-  4. Reddit RSS (via BrowserAct stealth-extract, .rss endpoint)
+  4. Reddit RSS (direct requests, BrowserAct fallback via .rss endpoint)
 
 Usage:
     python browser_act_scraper.py                    # Scrape and push to Render
@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+import shutil
 import time
 import logging
 import subprocess
@@ -54,7 +55,31 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 RENDER_URL = os.environ.get("RENDER_URL", "https://sentimentmonitor.onrender.com")
-BROWSER_ACT_CMD = os.environ.get("BROWSER_ACT_CMD", "browser-act")
+
+
+def _resolve_browser_act_cmd():
+    """Resolve the browser-act executable.
+
+    Priority: explicit BROWSER_ACT_CMD env var, then PATH, then the uv-tool
+    install location (which is NOT on PATH in this environment, so the bare
+    name 'browser-act' would otherwise raise FileNotFoundError).
+    """
+    explicit = os.environ.get("BROWSER_ACT_CMD")
+    if explicit:
+        return explicit
+    if shutil.which("browser-act"):
+        return "browser-act"
+    tool_dir = os.environ.get(
+        "UV_TOOL_DIR", "C:/Users/leo/.workbuddy/binaries/python/tools"
+    )
+    for rel in ("Scripts/browser-act.exe", "bin/browser-act"):
+        candidate = os.path.normpath(os.path.join(tool_dir, "browser-act-cli", rel))
+        if os.path.exists(candidate):
+            return candidate
+    return "browser-act"
+
+
+BROWSER_ACT_CMD = _resolve_browser_act_cmd()
 STEALTH_TIMEOUT = 60  # seconds per stealth-extract call
 RENDER_WAIT = 3       # seconds to wait for JS rendering
 PUSH_TIMEOUT = 30     # seconds for POST to Render
@@ -83,10 +108,32 @@ REDDIT_SUBS = "simracing+simracingdevices"
 REDDIT_RSS_BASE = "https://www.reddit.com/r/{subs}/search.rss"
 
 # Sim Racing news sites — direct RSS feeds (no BrowserAct needed)
+# Entries may declare a "feed" (general feed, brand-filtered) and/or a
+# "search_template" (server-side brand search, no extra filtering needed).
 SIM_RACING_FEEDS = {
     "TraxionGG": {
         "feed": "https://traxion.gg/feed/",
         "search_template": "https://traxion.gg/?s={query}&feed=rss2",
+    },
+    "BoxThisLap": {
+        "feed": "https://boxthislap.org/feed/",
+        "search_template": "https://boxthislap.org/?s={query}&feed=rss2",
+    },
+    "SimRacingSetup": {
+        # Store/guides site — search endpoint only (general feed is bot-protected)
+        "search_template": "https://www.simracingsetup.com/?s={query}&feed=rss2",
+    },
+    "iRacing": {
+        # Official iRacing news (broad → brand-filtered)
+        "feed": "https://www.iracing.com/feed/",
+    },
+    "SimRacingExpo": {
+        # SimRacing Expo event news (broad → brand-filtered)
+        "feed": "https://www.simracingexpo.com/feed/",
+    },
+    "Studio397": {
+        # rFactor 2 official community forum (broad → brand-filtered)
+        "feed": "https://forum.studio-397.com/index.php?forums/-/index.rss",
     },
     "GTPlanet": {
         "feed": "https://www.gtplanet.net/forum/forums/-/index.rss",
@@ -374,10 +421,10 @@ def parse_google_news_rss(rss_content, days=7):
     return items
 
 
-def crawl_google_news_via_browseract(query, days=7):
-    """Fetch Google News RSS via BrowserAct stealth-extract.
+def crawl_google_news_rss(query, days=7):
+    """Fetch Google News RSS — direct request first, BrowserAct as fallback.
 
-    Returns list of news items.
+    Google News RSS doesn't require stealth in practice (HTTP 200 for curl).
     """
     encoded = requests.utils.quote(query)
     url = (
@@ -386,10 +433,16 @@ def crawl_google_news_via_browseract(query, days=7):
     )
 
     logger.info("Fetching Google News: %s", query)
-    content = stealth_extract(url)
+
+    # Try direct request first
+    content = fetch_rss_direct(url, source_name="Google News")
+    if not content:
+        # Fallback to BrowserAct stealth-extract
+        logger.info("Direct fetch failed, trying BrowserAct...")
+        content = stealth_extract(url)
 
     if not content:
-        logger.warning("No content from stealth-extract for: %s", query)
+        logger.warning("No content for Google News: %s", query)
         return []
 
     items = parse_google_news_rss(content, days=days)
@@ -575,7 +628,8 @@ def crawl_sim_racing_sites(brand, days=7):
             search_url = feed_config["search_template"].format(query=brand)
             urls_to_try.append((search_url, f"{site_name} search"))
 
-        urls_to_try.append((feed_config["feed"], f"{site_name} feed"))
+        if feed_config.get("feed"):
+            urls_to_try.append((feed_config["feed"], f"{site_name} feed"))
 
         for url, label in urls_to_try:
             logger.info("Fetching %s: %s", label, brand)
@@ -606,7 +660,7 @@ def crawl_sim_racing_sites(brand, days=7):
 # Reddit RSS (via BrowserAct stealth-extract — .rss endpoint avoids 403)
 # ---------------------------------------------------------------------------
 def crawl_reddit_rss(query, days=7):
-    """Fetch Reddit search RSS via BrowserAct stealth-extract.
+    """Fetch Reddit search RSS — direct request first, BrowserAct as fallback.
 
     Uses .rss endpoint which is different from the .json endpoint that gets 403.
     Searches in r/simracing + r/simracingdevices.
@@ -620,12 +674,14 @@ def crawl_reddit_rss(query, days=7):
     )
 
     logger.info("Fetching Reddit RSS: %s", query)
-    content = stealth_extract(url)
+
+    # Try direct request first (works sometimes, e.g. Simagic query got 25 items)
+    content = fetch_rss_direct(url, source_name="Reddit RSS")
 
     if not content:
-        # Fallback: try direct request (may get 429 but worth trying)
-        logger.info("BrowserAct failed for Reddit, trying direct request...")
-        content = fetch_rss_direct(url, source_name="Reddit RSS")
+        # Fallback: try BrowserAct stealth-extract
+        logger.info("Direct request failed for Reddit, trying BrowserAct...")
+        content = stealth_extract(url)
 
     if not content:
         logger.warning("No content from Reddit for: %s", query)
@@ -672,9 +728,9 @@ def compile_moza_report(week_start, week_end):
     seen_titles = set()
     active_sources = set()
 
-    # --- 1. Google News (via BrowserAct) ---
+    # --- 1. Google News (direct first, BrowserAct fallback) ---
     for query in MOZA_QUERIES:
-        items = crawl_google_news_via_browseract(query, days=7)
+        items = crawl_google_news_rss(query, days=7)
         for item in items:
             title = item["title"]
             if title not in seen_titles:
@@ -896,7 +952,7 @@ def compile_competitor_data(week_start, week_end):
 
         # 1. Google News
         for query in queries:
-            items = crawl_google_news_via_browseract(query, days=7)
+            items = crawl_google_news_rss(query, days=7)
             for item in items:
                 if item["title"] not in seen_titles:
                     seen_titles.add(item["title"])
@@ -1056,6 +1112,77 @@ def push_competitor_data(base_url, week_start, week_end, comp_data, summary):
 
 
 # ---------------------------------------------------------------------------
+# History ledger — durable record of every week ever compiled
+# ---------------------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LEDGER_PATH = os.path.join(BASE_DIR, "data", "history.json")
+
+
+def load_ledger():
+    """Load the local history ledger.
+
+    Shape::
+
+        {"reports":     {"<week_start>": <ingest payload>, ...},
+         "competitors": {"<week_start>": {"week_start", "week_end",
+                                          "summary", "data": {...}}, ...}}
+    """
+    if os.path.exists(LEDGER_PATH):
+        try:
+            with open(LEDGER_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                data.setdefault("reports", {})
+                data.setdefault("competitors", {})
+                return data
+        except Exception as e:
+            logger.warning("Could not read ledger %s: %s", LEDGER_PATH, e)
+    return {"reports": {}, "competitors": {}}
+
+
+def save_ledger(ledger):
+    """Persist the ledger to disk (creating data/ if needed)."""
+    try:
+        os.makedirs(os.path.dirname(LEDGER_PATH), exist_ok=True)
+        with open(LEDGER_PATH, "w", encoding="utf-8") as f:
+            json.dump(ledger, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning("Could not write ledger %s: %s", LEDGER_PATH, e)
+
+
+def sync_history(base_url, ledger):
+    """POST the whole ledger to Render so an ephemeral DB gets rehydrated.
+
+    Render's free tier wipes its SQLite file on every redeploy; sending the
+    full ledger here restores the complete trend series without waiting for
+    weeks to re-accumulate.
+    """
+    reports = [ledger["reports"][k] for k in sorted(ledger["reports"])]
+    payload = {"reports": reports}
+    if ledger.get("competitors"):
+        # Send every competitor week (oldest first) so the competitor trend
+        # series is rebuilt too — not just the latest week's detail.
+        payload["competitors"] = [
+            ledger["competitors"][k] for k in sorted(ledger["competitors"])
+        ]
+    # Only ask the server to drop its own placeholder week when we actually
+    # have a real ledger to replace it with.
+    payload["prune_mock"] = bool(reports)
+
+    url = f"{base_url}/api/history/sync"
+    try:
+        resp = requests.post(url, json=payload, timeout=PUSH_TIMEOUT * 3)
+        if resp.status_code == 200:
+            logger.info("History ledger synced (%d report-weeks, %d competitor-weeks) to %s",
+                        len(reports), len(payload.get("competitors", [])), url)
+            return True
+        logger.warning("History sync failed: %d %s", resp.status_code, resp.text[:200])
+    except Exception as e:
+        logger.warning("History sync failed: %s", e)
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def get_current_week():
@@ -1082,11 +1209,15 @@ def main():
     ws, we = get_current_week()
     logger.info("Week: %s ~ %s", ws, we)
 
+    ledger = load_ledger()
+
     # Scrape MOZA data
     if not args.competitors_only:
         report = compile_moza_report(ws, we)
         if report:
             logger.info("MOZA report compiled successfully")
+            report.setdefault("data_source", "real")
+            ledger["reports"][ws] = report
             if args.dry_run:
                 logger.info("[Dry run] Would push MOZA report:\n%s",
                             json.dumps(report, indent=2, ensure_ascii=False)[:500])
@@ -1100,6 +1231,19 @@ def main():
         comp_data, summary = compile_competitor_data(ws, we)
         if comp_data:
             logger.info("Competitor data compiled successfully")
+            ledger["competitors"][ws] = {
+                "week_start": ws,
+                "week_end": we,
+                "summary": summary,
+                "data_source": "real",
+                "counts": {brand: len(updates)
+                           for brand, updates in comp_data.items()},
+                "data": {
+                    brand: [[cat, content, src, sent]
+                            for (cat, content, src, sent) in updates]
+                    for brand, updates in comp_data.items()
+                },
+            }
             if args.dry_run:
                 logger.info("[Dry run] Would push competitor data")
                 for brand, updates in comp_data.items():
@@ -1108,6 +1252,14 @@ def main():
                 push_competitor_data(base_url, ws, we, comp_data, summary)
         else:
             logger.warning("No competitor data found")
+
+    # Persist the ledger and rehydrate Render's history. This is what makes the
+    # trend survive Render's ephemeral filesystem (DB is wiped on redeploy).
+    save_ledger(ledger)
+    logger.info("Ledger saved: %d report-weeks, %d competitor-weeks",
+                len(ledger["reports"]), len(ledger["competitors"]))
+    if not args.dry_run:
+        sync_history(base_url, ledger)
 
     logger.info("Done!")
 

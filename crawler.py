@@ -102,10 +102,28 @@ TOTAL_BUDGET = 80     # max seconds for a full crawl (keeps Render startup under
 REDDIT_SUBS = "simracing+simracingdevices"
 
 # Sim Racing news sites — direct RSS feeds
+# Entries may declare a "feed" (general feed, brand-filtered) and/or a
+# "search_template" (server-side brand search, no extra filtering needed).
 SIM_RACING_FEEDS = {
     "TraxionGG": {
         "feed": "https://traxion.gg/feed/",
         "search_template": "https://traxion.gg/?s={query}&feed=rss2",
+    },
+    "BoxThisLap": {
+        "feed": "https://boxthislap.org/feed/",
+        "search_template": "https://boxthislap.org/?s={query}&feed=rss2",
+    },
+    "SimRacingSetup": {
+        "search_template": "https://www.simracingsetup.com/?s={query}&feed=rss2",
+    },
+    "iRacing": {
+        "feed": "https://www.iracing.com/feed/",
+    },
+    "SimRacingExpo": {
+        "feed": "https://www.simracingexpo.com/feed/",
+    },
+    "Studio397": {
+        "feed": "https://forum.studio-397.com/index.php?forums/-/index.rss",
     },
     "GTPlanet": {
         "feed": "https://www.gtplanet.net/forum/forums/-/index.rss",
@@ -356,7 +374,8 @@ def crawl_sim_racing_sites(brand, days=7):
         if "search_template" in feed_config:
             search_url = feed_config["search_template"].format(query=brand)
             urls_to_try.append((search_url, True))  # True = is search (no filter needed)
-        urls_to_try.append((feed_config["feed"], False))  # False = general feed (needs filtering)
+        if feed_config.get("feed"):
+            urls_to_try.append((feed_config["feed"], False))  # general feed (needs filtering)
 
         for url, is_search in urls_to_try:
             try:

@@ -6,6 +6,7 @@ Author: WorkBuddy
 import os
 import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -16,7 +17,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 # App setup
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "data" / "sentiment.db"
+# Allow overriding the DB location (useful for local testing / migrations).
+DB_PATH = Path(os.environ.get("SENTIMENT_DB_PATH") or (BASE_DIR / "data" / "sentiment.db"))
 
 app = Flask(__name__)
 
@@ -31,9 +33,31 @@ def get_db():
     return conn
 
 
+@contextmanager
+def db_conn():
+    """Connection context manager: commit on success, rollback on error, and
+    ALWAYS close.
+
+    sqlite3's own ``with conn:`` only commits — it never closes — so the old
+    ``with db_conn() as conn:`` pattern leaked a connection (and file handle)
+    on every call. Closing also releases write locks promptly, which prevents
+    the "database is locked" errors that appear when two connections are open
+    at once.
+    """
+    conn = get_db()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def init_db():
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    with get_db() as conn:
+    with db_conn() as conn:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS weekly_reports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,6 +136,22 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now','localtime')),
                 UNIQUE(week_start, week_end)
             );
+
+            -- One row per brand per week: the durable mention-count series that
+            -- powers the competitor trend chart. Kept separate from
+            -- competitor_updates because a backfilled week has a *count* but no
+            -- itemised content, and because trending should not depend on how
+            -- many detail rows happen to exist.
+            CREATE TABLE IF NOT EXISTS competitor_weekly_counts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                competitor_id INTEGER NOT NULL,
+                week_start TEXT NOT NULL,
+                week_end   TEXT NOT NULL,
+                mention_count INTEGER DEFAULT 0,
+                data_source TEXT DEFAULT 'real',
+                UNIQUE(competitor_id, week_start, week_end),
+                FOREIGN KEY(competitor_id) REFERENCES competitors(id)
+            );
         """)
         # Migration: add data_source column if missing (for existing DBs)
         try:
@@ -139,14 +179,15 @@ def seed_competitors(conn):
 # ---------------------------------------------------------------------------
 # DB insertion helpers (shared by mock generator and real crawler)
 # ---------------------------------------------------------------------------
-def _insert_weekly_report(week_start_str, week_end_str, v):
+def _insert_weekly_report(week_start_str, week_end_str, v, data_source="mock"):
     """Insert a weekly report and all related sub-records into the DB.
     *v* must have keys: summary, mention_count, change, pos, neu, neg,
     topics (list of {rank,topic,summary}), risks (list of {level,content,source}),
     sentiments (list of {sentiment,viewpoint,source}), actions (list of str).
+    *data_source* is 'real' for crawled data and 'mock' for seeded samples.
     Returns the report ID.
     """
-    with get_db() as conn:
+    with db_conn() as conn:
         exists = conn.execute(
             "SELECT id FROM weekly_reports WHERE week_start=? AND week_end=?",
             (week_start_str, week_end_str)
@@ -158,10 +199,10 @@ def _insert_weekly_report(week_start_str, week_end_str, v):
             """INSERT INTO weekly_reports
                (week_start, week_end, overall_summary, mention_count,
                 mention_change, positive_pct, neutral_pct, negative_pct, data_source)
-               VALUES (?,?,?,?,?,?,?,?, 'mock')""",
+               VALUES (?,?,?,?,?,?,?,?,?)""",
             (week_start_str, week_end_str, v["summary"],
              v["mention_count"], v["change"],
-             v["pos"], v["neu"], v["neg"])
+             v["pos"], v["neu"], v["neg"], data_source)
         )
         rid = cursor.lastrowid
 
@@ -188,32 +229,139 @@ def _insert_weekly_report(week_start_str, week_end_str, v):
         return rid
 
 
-def _insert_competitor_data(week_start, week_end, data_dict, summary):
-    """Insert competitor updates and weekly summary into the DB.
-    *data_dict* maps brand name -> list of (category, content, source, sentiment).
-    """
-    with get_db() as conn:
-        competitors = {
-            r["name"]: r["id"]
-            for r in conn.execute("SELECT * FROM competitors").fetchall()
-        }
-        for name, updates in data_dict.items():
-            cid = competitors.get(name)
-            if not cid:
-                continue
-            for cat, content, source, sent in updates:
-                conn.execute(
-                    """INSERT OR IGNORE INTO competitor_updates
-                       (competitor_id, week_start, week_end, category, content, source, sentiment)
-                       VALUES (?,?,?,?,?,?,?)""",
-                    (cid, week_start, week_end, cat, content, source, sent)
-                )
+_DEFAULT_COMPETITOR_COLORS = {
+    "Fanatec": "#f5a623",
+    "Simagic": "#00c2ff",
+    "Thrustmaster": "#e53935",
+    "PXN": "#7c4dff",
+    "WINCTRL": "#00e676",
+    "VIRPIL": "#ff6d00",
+}
 
+
+def _insert_competitor_data(conn, week_start, week_end, data_dict, summary,
+                            counts=None, data_source="real"):
+    """Insert competitor updates, weekly summary and mention counts.
+
+    *data_dict* maps brand name -> list of (category, content, source, sentiment).
+    *counts* optionally maps brand name -> mention count for the week; it is
+    authoritative for the trend series and may include brands that have no
+    itemised updates (the backfill case). Falls back to ``len(updates)``.
+    *data_source* is stored on the weekly count row ('real' / 'backfill' / …).
+    Takes an explicit *conn* so callers can compose it inside a single
+    transaction (a nested second connection would deadlock on the write lock).
+    """
+    competitors = {
+        r["name"]: r["id"]
+        for r in conn.execute("SELECT * FROM competitors").fetchall()
+    }
+
+    def _cid_for(name):
+        cid = competitors.get(name)
+        if not cid:
+            # Auto-create so a bulk sync can rehydrate a freshly wiped DB.
+            cur = conn.execute(
+                "INSERT INTO competitors (name, color) VALUES (?,?)",
+                (name, _DEFAULT_COMPETITOR_COLORS.get(name))
+            )
+            cid = cur.lastrowid
+            competitors[name] = cid
+        return cid
+
+    for name, updates in data_dict.items():
+        cid = _cid_for(name)
+        for cat, content, source, sent in updates:
+            conn.execute(
+                """INSERT OR IGNORE INTO competitor_updates
+                   (competitor_id, week_start, week_end, category, content, source, sentiment)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (cid, week_start, week_end, cat, content, source, sent)
+            )
+
+    # Durable mention-count series (powers the competitor trend chart).
+    weekly = dict(counts or {})
+    for name, updates in data_dict.items():
+        weekly.setdefault(name, len(updates))
+    for name, n in weekly.items():
         conn.execute(
-            """INSERT OR IGNORE INTO competitor_summaries (week_start, week_end, summary)
-               VALUES (?,?,?)""",
-            (week_start, week_end, summary)
+            """INSERT INTO competitor_weekly_counts
+               (competitor_id, week_start, week_end, mention_count, data_source)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(competitor_id, week_start, week_end)
+               DO UPDATE SET mention_count=excluded.mention_count,
+                             data_source=excluded.data_source""",
+            (_cid_for(name), week_start, week_end, int(n or 0), data_source)
         )
+
+    conn.execute(
+        """INSERT OR IGNORE INTO competitor_summaries (week_start, week_end, summary)
+           VALUES (?,?,?)""",
+        (week_start, week_end, summary)
+    )
+
+
+def _upsert_weekly_report(conn, data):
+    """Insert or replace one weekly report (+ its sub-records) from a payload.
+
+    Used by both /api/ingest and /api/history/sync so the two paths cannot
+    drift apart. *data* uses the ingest JSON shape; ``data_source`` defaults
+    to 'real'. Returns the report id.
+    """
+    src = data.get("data_source", "real")
+    existing = conn.execute(
+        "SELECT id FROM weekly_reports WHERE week_start=? AND week_end=?",
+        (data["week_start"], data["week_end"])
+    ).fetchone()
+
+    if existing:
+        rid = existing["id"]
+        conn.execute("DELETE FROM hot_topics WHERE report_id=?", (rid,))
+        conn.execute("DELETE FROM risk_alerts WHERE report_id=?", (rid,))
+        conn.execute("DELETE FROM sentiment_samples WHERE report_id=?", (rid,))
+        conn.execute("DELETE FROM action_items WHERE report_id=?", (rid,))
+        conn.execute(
+            """UPDATE weekly_reports SET
+               overall_summary=?, mention_count=?, mention_change=?,
+               positive_pct=?, neutral_pct=?, negative_pct=?, data_source=?
+               WHERE id=?""",
+            (data.get("overall_summary", ""), data.get("mention_count", 0),
+             data.get("mention_change", 0), data.get("positive_pct", 0),
+             data.get("neutral_pct", 0), data.get("negative_pct", 0), src, rid)
+        )
+    else:
+        cur = conn.execute(
+            """INSERT INTO weekly_reports
+               (week_start, week_end, overall_summary, mention_count,
+                mention_change, positive_pct, neutral_pct, negative_pct, data_source)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (data["week_start"], data["week_end"], data.get("overall_summary", ""),
+             data.get("mention_count", 0), data.get("mention_change", 0),
+             data.get("positive_pct", 0), data.get("neutral_pct", 0),
+             data.get("negative_pct", 0), src)
+        )
+        rid = cur.lastrowid
+
+    for t in data.get("topics", []):
+        conn.execute(
+            "INSERT INTO hot_topics (report_id, rank, topic, summary) VALUES (?,?,?,?)",
+            (rid, t.get("rank", 0), t.get("topic", ""), t.get("summary", ""))
+        )
+    for r in data.get("risks", []):
+        conn.execute(
+            "INSERT INTO risk_alerts (report_id, level, content, source) VALUES (?,?,?,?)",
+            (rid, r.get("level", "green"), r.get("content", ""), r.get("source", ""))
+        )
+    for s in data.get("sentiments", []):
+        conn.execute(
+            "INSERT INTO sentiment_samples (report_id, sentiment, viewpoint, source) VALUES (?,?,?,?)",
+            (rid, s.get("sentiment", "neutral"), s.get("viewpoint", ""), s.get("source", ""))
+        )
+    for a in data.get("actions", []):
+        txt = a.get("action_text", "") if isinstance(a, dict) else a
+        conn.execute(
+            "INSERT INTO action_items (report_id, action_text) VALUES (?,?)", (rid, txt)
+        )
+    return rid
 
 
 # ---------------------------------------------------------------------------
@@ -307,16 +455,18 @@ def generate_mock_week(week_start_str, week_end_str, variant=0):
 
 
 def get_current_week():
-    """Return (week_start, week_end) for the most recently completed week."""
+    """Return (week_start, week_end) for the CURRENT week (Monday–Sunday).
+
+    Previously this returned the most recently *completed* week, which did not
+    match the week label produced by browser_act_scraper.py (current Mon–Sun).
+    That mismatch caused the auto-fill to write a different week than the
+    scraper, so the same period could appear twice / never line up. Both sides
+    now use the current Monday–Sunday convention.
+    """
     today = datetime.now()
-    # Most recent Sunday
-    days_since_sunday = (today.weekday() + 1) % 7  # Monday=0, Sunday=6 → days since last Sunday
-    if days_since_sunday == 0:
-        days_since_sunday = 7
-    last_sunday = today - timedelta(days=days_since_sunday)
-    # Previous Monday to Sunday
-    week_start = last_sunday - timedelta(days=6)
-    return week_start.strftime("%Y-%m-%d"), last_sunday.strftime("%Y-%m-%d")
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    return monday.strftime("%Y-%m-%d"), sunday.strftime("%Y-%m-%d")
 
 
 def ensure_current_week_data():
@@ -326,7 +476,7 @@ def ensure_current_week_data():
     Tries the real-data crawler first; falls back to mock on failure.
     """
     ws, we = get_current_week()
-    with get_db() as conn:
+    with db_conn() as conn:
         exists = conn.execute(
             "SELECT COUNT(*) FROM weekly_reports WHERE week_start=? AND week_end=?",
             (ws, we)
@@ -339,7 +489,7 @@ def ensure_current_week_data():
         from crawler import compile_moza_weekly_report
         real_data = compile_moza_weekly_report(ws, we)
         if real_data:
-            rid = _insert_weekly_report(ws, we, real_data)
+            rid = _insert_weekly_report(ws, we, real_data, data_source="real")
             app.logger.info(f"[AutoFill] Crawled real MOZA report for {ws} ~ {we} (id={rid})")
             ensure_current_competitor_data(ws, we)
             return
@@ -348,7 +498,7 @@ def ensure_current_week_data():
         app.logger.warning(f"[Crawler] MOZA crawl failed, falling back to mock: {e}")
 
     # --- Fallback: mock data ---
-    with get_db() as conn:
+    with db_conn() as conn:
         total = conn.execute("SELECT COUNT(*) FROM weekly_reports").fetchone()[0]
     rid = generate_mock_week(ws, we, variant=total)
     app.logger.info(f"[AutoFill] Generated mock MOZA report for {ws} ~ {we} (id={rid})")
@@ -359,7 +509,7 @@ def ensure_current_week_data():
 
 def seed_mock_data():
     """Seed initial data if DB is completely empty, then fill current week."""
-    with get_db() as conn:
+    with db_conn() as conn:
         cnt = conn.execute("SELECT COUNT(*) FROM weekly_reports").fetchone()[0]
     if cnt == 0:
         # Generate one historical week so there's trend context
@@ -578,7 +728,7 @@ def ensure_current_competitor_data(week_start, week_end):
 
     Tries the real-data crawler first; falls back to mock on failure.
     """
-    with get_db() as conn:
+    with db_conn() as conn:
         # Ensure competitor list exists
         existing = conn.execute("SELECT COUNT(*) FROM competitors").fetchone()[0]
         if existing == 0:
@@ -608,7 +758,8 @@ def ensure_current_competitor_data(week_start, week_end):
         from crawler import compile_competitor_updates
         real_data, real_summary = compile_competitor_updates(week_start, week_end)
         if real_data is not None:
-            _insert_competitor_data(week_start, week_end, real_data, real_summary)
+            with db_conn() as conn:
+                _insert_competitor_data(conn, week_start, week_end, real_data, real_summary)
             app.logger.info(f"[AutoFill] Crawled real competitor data for {week_start} ~ {week_end}")
             return
         app.logger.warning("[Crawler] No real competitor data found, falling back to mock")
@@ -617,13 +768,15 @@ def ensure_current_competitor_data(week_start, week_end):
 
     # --- Fallback: mock data ---
     mock_data, summary = get_competitor_mock_updates(variant=total)
-    _insert_competitor_data(week_start, week_end, mock_data, summary)
+    with db_conn() as conn:
+        _insert_competitor_data(conn, week_start, week_end, mock_data, summary,
+                                data_source="mock")
     app.logger.info(f"[AutoFill] Generated mock competitor data for {week_start} ~ {week_end}")
 
 
 def seed_competitor_mock_data():
     """Seed initial competitor data, then ensure current week is filled."""
-    with get_db() as conn:
+    with db_conn() as conn:
         cnt = conn.execute("SELECT COUNT(*) FROM competitor_updates").fetchone()[0]
 
     if cnt == 0:
@@ -644,14 +797,16 @@ def seed_competitor_mock_data():
 # Scheduled task: weekly data refresh
 # ---------------------------------------------------------------------------
 def weekly_refresh():
-    """Called every Monday at 09:00 — auto-fill current week and clean old data."""
+    """Called every Monday at 09:00 — auto-fill current week and prune ancient data."""
     # First, ensure current week has data
     ensure_current_week_data()
 
-    with get_db() as conn:
-        # Delete reports older than 8 weeks
+    # Keep a long history (2 years) so trend charts accumulate over time.
+    # Previously this pruned anything older than 8 weeks (56 days), which
+    # combined with the mock-purge, meant history could never build up.
+    with db_conn() as conn:
         old_reports = conn.execute(
-            "SELECT id FROM weekly_reports WHERE week_end < date('now', '-56 days')"
+            "SELECT id FROM weekly_reports WHERE week_end < date('now', '-730 days')"
         ).fetchall()
         if old_reports:
             old_ids = [r["id"] for r in old_reports]
@@ -661,14 +816,14 @@ def weekly_refresh():
             conn.execute(f"DELETE FROM sentiment_samples WHERE report_id IN ({placeholders})", old_ids)
             conn.execute(f"DELETE FROM action_items WHERE report_id IN ({placeholders})", old_ids)
             conn.execute(f"DELETE FROM weekly_reports WHERE id IN ({placeholders})", old_ids)
-            app.logger.info(f"[Scheduler] Cleaned {len(old_ids)} old reports (older than 8 weeks)")
+            app.logger.info(f"[Scheduler] Cleaned {len(old_ids)} reports (older than 2 years)")
 
-        # Delete old competitor updates (older than 8 weeks)
+        # Prune competitor data older than 2 years as well
         conn.execute(
-            "DELETE FROM competitor_updates WHERE week_end < date('now', '-56 days')"
+            "DELETE FROM competitor_updates WHERE week_end < date('now', '-730 days')"
         )
         conn.execute(
-            "DELETE FROM competitor_summaries WHERE week_end < date('now', '-56 days')"
+            "DELETE FROM competitor_summaries WHERE week_end < date('now', '-730 days')"
         )
 
 
@@ -677,7 +832,7 @@ def weekly_refresh():
 # ---------------------------------------------------------------------------
 @app.route("/api/reports")
 def api_reports():
-    with get_db() as conn:
+    with db_conn() as conn:
         reports = conn.execute(
             "SELECT * FROM weekly_reports ORDER BY week_start DESC"
         ).fetchall()
@@ -701,7 +856,7 @@ def api_reports():
 
 @app.route("/api/reports/<int:report_id>")
 def api_report_detail(report_id):
-    with get_db() as conn:
+    with db_conn() as conn:
         report = conn.execute(
             "SELECT * FROM weekly_reports WHERE id=?", (report_id,)
         ).fetchone()
@@ -766,85 +921,142 @@ def api_ingest():
         if field not in data:
             return jsonify({"error": f"Missing field: {field}"}), 400
 
-    with get_db() as conn:
-        existing = conn.execute(
-            "SELECT id FROM weekly_reports WHERE week_start=? AND week_end=?",
-            (data["week_start"], data["week_end"])
-        ).fetchone()
-
-        if existing:
-            # Update existing
-            conn.execute("DELETE FROM hot_topics WHERE report_id=?", (existing["id"],))
-            conn.execute("DELETE FROM risk_alerts WHERE report_id=?", (existing["id"],))
-            conn.execute("DELETE FROM sentiment_samples WHERE report_id=?", (existing["id"],))
-            conn.execute("DELETE FROM action_items WHERE report_id=?", (existing["id"],))
-            conn.execute(
-                """UPDATE weekly_reports SET 
-                   overall_summary=?, mention_count=?, mention_change=?,
-                   positive_pct=?, neutral_pct=?, negative_pct=?, data_source='real'
-                   WHERE id=?""",
-                (data["overall_summary"], data.get("mention_count", 0),
-                 data.get("mention_change", 0), data.get("positive_pct", 0),
-                 data.get("neutral_pct", 0), data.get("negative_pct", 0),
-                 existing["id"])
-            )
-            rid = existing["id"]
-        else:
-            cursor = conn.execute(
-                """INSERT INTO weekly_reports 
-                   (week_start, week_end, overall_summary, mention_count,
-                    mention_change, positive_pct, neutral_pct, negative_pct, data_source)
-                   VALUES (?,?,?,?,?,?,?,?, 'real')""",
-                (data["week_start"], data["week_end"], data["overall_summary"],
-                 data.get("mention_count", 0), data.get("mention_change", 0),
-                 data.get("positive_pct", 0), data.get("neutral_pct", 0),
-                 data.get("negative_pct", 0))
-            )
-            rid = cursor.lastrowid
-
-        # Delete all mock reports (keep only real data)
-        mock_rows = conn.execute(
-            "SELECT id FROM weekly_reports WHERE data_source='mock'"
-        ).fetchall()
-        for mr in mock_rows:
-            conn.execute("DELETE FROM hot_topics WHERE report_id=?", (mr["id"],))
-            conn.execute("DELETE FROM risk_alerts WHERE report_id=?", (mr["id"],))
-            conn.execute("DELETE FROM sentiment_samples WHERE report_id=?", (mr["id"],))
-            conn.execute("DELETE FROM action_items WHERE report_id=?", (mr["id"],))
-            conn.execute("DELETE FROM weekly_reports WHERE id=?", (mr["id"],))
-        if mock_rows:
-            app.logger.info(f"[Ingest] Cleaned {len(mock_rows)} mock reports")
-
-        for t in data.get("topics", []):
-            conn.execute(
-                "INSERT INTO hot_topics (report_id, rank, topic, summary) VALUES (?,?,?,?)",
-                (rid, t["rank"], t["topic"], t.get("summary", ""))
-            )
-        for r in data.get("risks", []):
-            conn.execute(
-                "INSERT INTO risk_alerts (report_id, level, content, source) VALUES (?,?,?,?)",
-                (rid, r["level"], r["content"], r.get("source", ""))
-            )
-        for s in data.get("sentiments", []):
-            conn.execute(
-                "INSERT INTO sentiment_samples (report_id, sentiment, viewpoint, source) VALUES (?,?,?,?)",
-                (rid, s["sentiment"], s["viewpoint"], s.get("source", ""))
-            )
-        for a in data.get("actions", []):
-            conn.execute(
-                "INSERT INTO action_items (report_id, action_text) VALUES (?,?)",
-                (rid, a.get("action_text", a) if isinstance(a, dict) else a)
-            )
+    # NOTE: we intentionally do NOT purge historical mock reports here. Doing so
+    # (as the old code did) wiped all previously seeded weeks and left the
+    # dashboard with a single week — the root cause of the "only current week
+    # is kept" problem. Same-week rows are upserted in place instead.
+    with db_conn() as conn:
+        rid = _upsert_weekly_report(conn, {**data, "data_source": "real"})
 
     return jsonify({"status": "ok", "report_id": rid})
 
 
+@app.route("/api/history")
+def api_history():
+    """Lightweight trend series — one row per stored week, oldest first.
+
+    Kept deliberately small (no topics/risks/sentiments) so the dashboard can
+    render the full trend without N+1 detail requests.
+    """
+    with db_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, week_start, week_end, mention_count,
+                      positive_pct, neutral_pct, negative_pct, data_source
+               FROM weekly_reports ORDER BY week_start ASC"""
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/history/sync", methods=["POST"])
+def api_history_sync():
+    """Bulk-upsert a full history payload (reports + optional competitor data).
+
+    This is the durability escape hatch: Render's free tier has an ephemeral
+    filesystem, so the SQLite DB is wiped on every redeploy. The weekly scraper
+    keeps an authoritative ledger locally and POSTs it here on each run, which
+    rehydrates the dashboard with the complete trend series.
+
+    Payload::
+
+        {
+          "reports": [ {week_start, week_end, overall_summary, mention_count,
+                        positive_pct, neutral_pct, negative_pct,
+                        topics:[], risks:[], sentiments:[], actions:[]}, ... ],
+          "competitors": [                     # optional (list; also accepts
+              {                                #  the legacy single "competitor")
+                "week_start": "...", "week_end": "...", "summary": "...",
+                "data":  {"Fanatec": [[category, content, source, sentiment], ...]},
+                "counts": {"Fanatec": 5, "Thrustmaster": 2, ...}   # optional
+              }, ...
+          ],
+          "prune_mock": true    # optional: drop stored weeks that are still
+                                # tagged 'mock' and absent from this payload
+                                # (clears the placeholder week seeded on boot)
+        }
+    """
+    data = request.get_json(force=True) or {}
+    reports = data.get("reports") or []
+    if not isinstance(reports, list):
+        return jsonify({"error": "'reports' must be a list"}), 400
+
+    # Accept both the new list form and the legacy single-object form.
+    comps = data.get("competitors")
+    if comps is None and data.get("competitor"):
+        comps = [data["competitor"]]
+    if comps is None:
+        comps = []
+    if not isinstance(comps, list):
+        return jsonify({"error": "'competitors' must be a list"}), 400
+
+    synced = 0
+    comp_weeks = 0
+    pruned = 0
+    with db_conn() as conn:
+        for rep in reports:
+            if not rep.get("week_start") or not rep.get("week_end"):
+                continue
+            _upsert_weekly_report(conn, {**rep, "data_source": rep.get("data_source", "real")})
+            synced += 1
+
+        if data.get("prune_mock"):
+            keep = {r["week_start"] for r in reports
+                    if r.get("week_start") and r.get("week_end")}
+            rows = conn.execute(
+                "SELECT id, week_start FROM weekly_reports WHERE data_source='mock'"
+            ).fetchall()
+            for row in rows:
+                if row["week_start"] in keep:
+                    continue
+                conn.execute("DELETE FROM hot_topics WHERE report_id=?", (row["id"],))
+                conn.execute("DELETE FROM risk_alerts WHERE report_id=?", (row["id"],))
+                conn.execute("DELETE FROM sentiment_samples WHERE report_id=?", (row["id"],))
+                conn.execute("DELETE FROM action_items WHERE report_id=?", (row["id"],))
+                conn.execute("DELETE FROM weekly_reports WHERE id=?", (row["id"],))
+                pruned += 1
+            # Same for placeholder competitor weeks with no real counts behind them.
+            conn.execute(
+                """DELETE FROM competitor_summaries
+                   WHERE week_start NOT IN (SELECT DISTINCT week_start
+                                            FROM competitor_weekly_counts
+                                            WHERE data_source != 'mock')"""
+            )
+
+        for comp in comps:
+            if not comp or not comp.get("week_start") or not comp.get("week_end"):
+                continue
+            ws, we = comp["week_start"], comp["week_end"]
+            # competitor_updates has no UNIQUE key, so clear that week first to
+            # keep repeated syncs idempotent (otherwise rows would duplicate).
+            conn.execute(
+                "DELETE FROM competitor_updates WHERE week_start=? AND week_end=?",
+                (ws, we)
+            )
+            _insert_competitor_data(
+                conn, ws, we,
+                {k: [tuple(u) for u in v] for k, v in (comp.get("data") or {}).items()},
+                comp.get("summary", ""),
+                counts=comp.get("counts"),
+                data_source=comp.get("data_source", "real"),
+            )
+            comp_weeks += 1
+
+    return jsonify({"status": "ok", "reports_synced": synced,
+                    "competitor_weeks_synced": comp_weeks, "mock_pruned": pruned})
+
+
 @app.route("/api/competitors/summary")
 def api_competitor_summary():
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM competitor_summaries ORDER BY week_end DESC LIMIT 1"
-        ).fetchone()
+    """Latest competitor weekly summary; pass ``?week=YYYY-MM-DD`` for one week."""
+    week = request.args.get("week")
+    with db_conn() as conn:
+        if week:
+            row = conn.execute(
+                "SELECT * FROM competitor_summaries WHERE week_start=? LIMIT 1", (week,)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM competitor_summaries ORDER BY week_end DESC LIMIT 1"
+            ).fetchone()
         if not row:
             return jsonify({"summary": "暂无竞品动态数据"})
     return jsonify(dict(row))
@@ -852,39 +1064,118 @@ def api_competitor_summary():
 
 @app.route("/api/competitors")
 def api_competitors():
-    with get_db() as conn:
+    """Current (or a chosen) week's competitor detail, grouped by brand.
+
+    Pass ``?week=YYYY-MM-DD`` (a week_start) to inspect a historical week.
+    Without it we prefer the most recent week that actually has itemised
+    updates — a backfilled week carries counts only, and rendering it by
+    default would make the tab look empty.
+    """
+    week = request.args.get("week")
+    with db_conn() as conn:
         competitors = conn.execute("SELECT * FROM competitors ORDER BY name").fetchall()
-        week_row = conn.execute(
-            "SELECT week_start, week_end FROM competitor_summaries ORDER BY week_end DESC LIMIT 1"
-        ).fetchone()
+        if week:
+            week_row = conn.execute(
+                "SELECT week_start, week_end FROM competitor_summaries WHERE week_start=? LIMIT 1",
+                (week,)
+            ).fetchone()
+        else:
+            week_row = conn.execute(
+                """SELECT s.week_start, s.week_end FROM competitor_summaries s
+                   WHERE EXISTS (SELECT 1 FROM competitor_updates u
+                                 WHERE u.week_start = s.week_start
+                                   AND u.week_end = s.week_end)
+                   ORDER BY s.week_end DESC LIMIT 1"""
+            ).fetchone()
+            if not week_row:
+                week_row = conn.execute(
+                    "SELECT week_start, week_end FROM competitor_summaries ORDER BY week_end DESC LIMIT 1"
+                ).fetchone()
 
-    result = []
-    for c in competitors:
-        updates = []
+        counts = {}
         if week_row:
-            rows = get_db().execute(
-                """SELECT * FROM competitor_updates 
-                   WHERE competitor_id=? AND week_start=? AND week_end=?
-                   ORDER BY 
-                     CASE category 
-                       WHEN 'product_change' THEN 1 
-                       WHEN 'business_movement' THEN 2 
-                       WHEN 'community_feedback' THEN 3 
-                     END""",
-                (c["id"], week_row["week_start"], week_row["week_end"])
-            ).fetchall()
-            updates = [dict(r) for r in rows]
+            counts = {
+                r["name"]: (r["mention_count"] or 0)
+                for r in conn.execute(
+                    """SELECT c.name AS name, w.mention_count AS mention_count
+                       FROM competitor_weekly_counts w
+                       JOIN competitors c ON c.id = w.competitor_id
+                       WHERE w.week_start=? AND w.week_end=?""",
+                    (week_row["week_start"], week_row["week_end"])
+                ).fetchall()
+            }
 
-        result.append({
-            "id": c["id"],
-            "name": c["name"],
-            "color": c["color"],
-            "week_start": week_row["week_start"] if week_row else None,
-            "week_end": week_row["week_end"] if week_row else None,
-            "updates": updates,
-        })
+        result = []
+        for c in competitors:
+            updates = []
+            if week_row:
+                # Reuse the same connection — the old code called get_db() inside
+                # the loop, opening (and never closing) one connection per brand.
+                rows = conn.execute(
+                    """SELECT * FROM competitor_updates
+                       WHERE competitor_id=? AND week_start=? AND week_end=?
+                       ORDER BY
+                         CASE category
+                           WHEN 'product_change' THEN 1
+                           WHEN 'business_movement' THEN 2
+                           WHEN 'community_feedback' THEN 3
+                         END""",
+                    (c["id"], week_row["week_start"], week_row["week_end"])
+                ).fetchall()
+                updates = [dict(r) for r in rows]
+
+            result.append({
+                "id": c["id"],
+                "name": c["name"],
+                "color": c["color"],
+                "week_start": week_row["week_start"] if week_row else None,
+                "week_end": week_row["week_end"] if week_row else None,
+                "mention_count": counts.get(c["name"], len(updates)),
+                "updates": updates,
+            })
 
     return jsonify(result)
+
+
+@app.route("/api/competitors/history")
+def api_competitors_history():
+    """Competitor mention-count trend — one entry per stored week (oldest first).
+
+    Shape::
+
+        [{"week_start","week_end","total","brands":{"Fanatec":5,...},
+          "data_source":"real", "has_detail": true}, ...]
+    """
+    with db_conn() as conn:
+        rows = conn.execute(
+            """SELECT c.name AS name, w.week_start AS week_start, w.week_end AS week_end,
+                      w.mention_count AS mention_count, w.data_source AS data_source
+               FROM competitor_weekly_counts w
+               JOIN competitors c ON c.id = w.competitor_id
+               ORDER BY w.week_start ASC"""
+        ).fetchall()
+        detail_weeks = {
+            r["week_start"]
+            for r in conn.execute(
+                "SELECT DISTINCT week_start FROM competitor_updates"
+            ).fetchall()
+        }
+
+    series = {}
+    for r in rows:
+        key = r["week_start"]
+        entry = series.setdefault(key, {
+            "week_start": r["week_start"],
+            "week_end": r["week_end"],
+            "brands": {},
+            "total": 0,
+            "data_source": r["data_source"] or "real",
+            "has_detail": key in detail_weeks,
+        })
+        entry["brands"][r["name"]] = r["mention_count"] or 0
+        entry["total"] += r["mention_count"] or 0
+
+    return jsonify([series[k] for k in sorted(series)])
 
 
 @app.route("/api/competitors/ingest", methods=["POST"])
@@ -896,7 +1187,7 @@ def api_competitor_ingest():
         if field not in data:
             return jsonify({"error": f"Missing field: {field}"}), 400
 
-    with get_db() as conn:
+    with db_conn() as conn:
         # Ensure competitors exist
         name_to_id = {}
         for r in conn.execute("SELECT * FROM competitors").fetchall():
@@ -927,6 +1218,21 @@ def api_competitor_ingest():
                      u.get("sentiment", "neutral"))
                 )
 
+            # Keep the durable trend series in sync with this week's ingest.
+            n = comp.get("mention_count")
+            if n is None:
+                n = len(comp.get("updates", []))
+            conn.execute(
+                """INSERT INTO competitor_weekly_counts
+                   (competitor_id, week_start, week_end, mention_count, data_source)
+                   VALUES (?,?,?,?,?)
+                   ON CONFLICT(competitor_id, week_start, week_end)
+                   DO UPDATE SET mention_count=excluded.mention_count,
+                                 data_source=excluded.data_source""",
+                (cid, data["week_start"], data["week_end"], int(n or 0),
+                 comp.get("data_source", "real"))
+            )
+
         # Save/update summary
         if data.get("summary"):
             conn.execute(
@@ -956,6 +1262,10 @@ import threading
 
 init_db()
 
+# Set SENTIMENT_SKIP_AUTOSEED=1 to skip the background crawl/seed and the
+# scheduler (used by local tests so they don't hit the network).
+SKIP_AUTOSEED = os.environ.get("SENTIMENT_SKIP_AUTOSEED") == "1"
+
 
 def _bg_seed_data():
     """Run data seeding in a background thread so the web server starts
@@ -970,12 +1280,13 @@ def _bg_seed_data():
         app.logger.error(f"[Startup] Background seed failed: {e}")
 
 
-threading.Thread(target=_bg_seed_data, daemon=True).start()
+if not SKIP_AUTOSEED:
+    threading.Thread(target=_bg_seed_data, daemon=True).start()
 
-scheduler = BackgroundScheduler()
-scheduler.add_job(weekly_refresh, "cron", day_of_week="mon", hour=9, minute=0,
-                  id="weekly_refresh")
-scheduler.start()
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(weekly_refresh, "cron", day_of_week="mon", hour=9, minute=0,
+                      id="weekly_refresh")
+    scheduler.start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

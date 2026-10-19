@@ -1,0 +1,258 @@
+{
+  "reports": {
+    "2026-08-10": {
+      "week_start": "2026-08-10",
+      "week_end": "2026-08-16",
+      "overall_summary": "本周 MOZA 相关提及 1 条。本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。（回填：本周情感分布未记录，按中性归集）",
+      "mention_count": 1,
+      "mention_change": 0,
+      "positive_pct": 0,
+      "neutral_pct": 100,
+      "negative_pct": 0,
+      "data_source": "backfill",
+      "topics": [
+        {
+          "rank": 1,
+          "topic": "回填周次（无明细）",
+          "summary": "本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。"
+        }
+      ],
+      "risks": [],
+      "sentiments": [],
+      "actions": []
+    },
+    "2026-08-31": {
+      "week_start": "2026-08-31",
+      "week_end": "2026-09-06",
+      "overall_summary": "本周 MOZA 相关提及 41 条。本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。",
+      "mention_count": 41,
+      "mention_change": 0,
+      "positive_pct": 61,
+      "neutral_pct": 29,
+      "negative_pct": 10,
+      "data_source": "backfill",
+      "topics": [
+        {
+          "rank": 1,
+          "topic": "回填周次（无明细）",
+          "summary": "本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。"
+        }
+      ],
+      "risks": [],
+      "sentiments": [],
+      "actions": []
+    },
+    "2026-09-07": {
+      "week_start": "2026-09-07",
+      "week_end": "2026-09-13",
+      "overall_summary": "本周 MOZA 相关提及 2 条。本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。（回填：本周情感分布未记录，按中性归集）",
+      "mention_count": 2,
+      "mention_change": 0,
+      "positive_pct": 0,
+      "neutral_pct": 100,
+      "negative_pct": 0,
+      "data_source": "backfill",
+      "topics": [
+        {
+          "rank": 1,
+          "topic": "回填周次（无明细）",
+          "summary": "本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。"
+        }
+      ],
+      "risks": [],
+      "sentiments": [],
+      "actions": []
+    },
+    "2026-09-14": {
+      "week_start": "2026-09-14",
+      "week_end": "2026-09-20",
+      "overall_summary": "本周 MOZA 相关提及 3 条。本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。",
+      "mention_count": 3,
+      "mention_change": 0,
+      "positive_pct": 0,
+      "neutral_pct": 100,
+      "negative_pct": 0,
+      "data_source": "backfill",
+      "topics": [
+        {
+          "rank": 1,
+          "topic": "回填周次（无明细）",
+          "summary": "本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。"
+        }
+      ],
+      "risks": [],
+      "sentiments": [],
+      "actions": []
+    },
+    "2026-09-21": {
+      "week_start": "2026-09-21",
+      "week_end": "2026-09-27",
+      "overall_summary": "本周 MOZA 相关提及 49 条。本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。",
+      "mention_count": 49,
+      "mention_change": 0,
+      "positive_pct": 67,
+      "neutral_pct": 27,
+      "negative_pct": 6,
+      "data_source": "backfill",
+      "topics": [
+        {
+          "rank": 1,
+          "topic": "回填周次（无明细）",
+          "summary": "本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。"
+        }
+      ],
+      "risks": [],
+      "sentiments": [],
+      "actions": []
+    },
+    "2026-10-05": {
+      "week_start": "2026-10-05",
+      "week_end": "2026-10-11",
+      "overall_summary": "本周 MOZA 相关提及 3 条。本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。",
+      "mention_count": 3,
+      "mention_change": 0,
+      "positive_pct": 33,
+      "neutral_pct": 67,
+      "negative_pct": 0,
+      "data_source": "backfill",
+      "topics": [
+        {
+          "rank": 1,
+          "topic": "回填周次（无明细）",
+          "summary": "本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。"
+        }
+      ],
+      "risks": [],
+      "sentiments": [],
+      "actions": []
+    },
+    "2026-10-12": {
+      "week_start": "2026-10-12",
+      "week_end": "2026-10-18",
+      "overall_summary": "本周 MOZA 相关提及 4 条。本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。",
+      "mention_count": 4,
+      "mention_change": 0,
+      "positive_pct": 50,
+      "neutral_pct": 50,
+      "negative_pct": 0,
+      "data_source": "backfill",
+      "topics": [
+        {
+          "rank": 1,
+          "topic": "回填周次（无明细）",
+          "summary": "本周数据由自动化执行记录回填（周次边界按运行日期推断），仅保留提及量与情感分布，原始条目详情未留存。"
+        }
+      ],
+      "risks": [],
+      "sentiments": [],
+      "actions": []
+    }
+  },
+  "competitors": {
+    "2026-08-10": {
+      "week_start": "2026-08-10",
+      "week_end": "2026-08-16",
+      "summary": "本周竞品动态合计 30 条（回填：仅计数，无明细）。",
+      "data_source": "backfill",
+      "counts": {
+        "Fanatec": 5,
+        "Simagic": 25,
+        "Thrustmaster": 0,
+        "PXN": 0,
+        "WINCTRL": 0,
+        "VIRPIL": 0
+      },
+      "data": {}
+    },
+    "2026-08-31": {
+      "week_start": "2026-08-31",
+      "week_end": "2026-09-06",
+      "summary": "本周竞品动态合计 15 条（回填：仅计数，无明细）。",
+      "data_source": "backfill",
+      "counts": {
+        "Fanatec": 9,
+        "Simagic": 1,
+        "Thrustmaster": 4,
+        "PXN": 1,
+        "WINCTRL": 0,
+        "VIRPIL": 0
+      },
+      "data": {}
+    },
+    "2026-09-07": {
+      "week_start": "2026-09-07",
+      "week_end": "2026-09-13",
+      "summary": "本周竞品动态合计 15 条（回填：仅计数，无明细）。",
+      "data_source": "backfill",
+      "counts": {
+        "Fanatec": 1,
+        "Simagic": 0,
+        "Thrustmaster": 14,
+        "PXN": 0,
+        "WINCTRL": 0,
+        "VIRPIL": 0
+      },
+      "data": {}
+    },
+    "2026-09-14": {
+      "week_start": "2026-09-14",
+      "week_end": "2026-09-20",
+      "summary": "本周竞品动态合计 0 条（回填：仅计数，无明细）。",
+      "data_source": "backfill",
+      "counts": {
+        "Fanatec": 0,
+        "Simagic": 0,
+        "Thrustmaster": 0,
+        "PXN": 0,
+        "WINCTRL": 0,
+        "VIRPIL": 0
+      },
+      "data": {}
+    },
+    "2026-09-21": {
+      "week_start": "2026-09-21",
+      "week_end": "2026-09-27",
+      "summary": "本周竞品动态合计 50 条（回填：仅计数，无明细）。",
+      "data_source": "backfill",
+      "counts": {
+        "Fanatec": 17,
+        "Simagic": 30,
+        "Thrustmaster": 3,
+        "PXN": 0,
+        "WINCTRL": 0,
+        "VIRPIL": 0
+      },
+      "data": {}
+    },
+    "2026-10-05": {
+      "week_start": "2026-10-05",
+      "week_end": "2026-10-11",
+      "summary": "本周竞品动态合计 7 条（回填：仅计数，无明细）。",
+      "data_source": "backfill",
+      "counts": {
+        "Fanatec": 3,
+        "Simagic": 0,
+        "Thrustmaster": 4,
+        "PXN": 0,
+        "WINCTRL": 0,
+        "VIRPIL": 0
+      },
+      "data": {}
+    },
+    "2026-10-12": {
+      "week_start": "2026-10-12",
+      "week_end": "2026-10-18",
+      "summary": "本周竞品动态合计 7 条（回填：仅计数，无明细）。",
+      "data_source": "backfill",
+      "counts": {
+        "Fanatec": 5,
+        "Simagic": 0,
+        "Thrustmaster": 2,
+        "PXN": 0,
+        "WINCTRL": 0,
+        "VIRPIL": 0
+      },
+      "data": {}
+    }
+  }
+}

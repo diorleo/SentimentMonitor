@@ -58,6 +58,32 @@
   }
   .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
 
+  /* ---- Week selector control bar ---- */
+  .control-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .control-bar label { font-size: 12px; color: var(--text-muted); }
+  .control-bar select {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; font-size: 13px; cursor: pointer;
+    min-width: 220px;
+  }
+  .control-bar select:focus { outline: none; border-color: var(--accent); }
+  .src-badge {
+    font-size: 11px; padding: 4px 10px; border-radius: 12px;
+    border: 1px solid var(--border); color: var(--text-muted);
+  }
+  .src-badge.real { color: var(--green); border-color: rgba(0,230,118,0.35); background: rgba(0,230,118,0.08); }
+  .src-badge.mock { color: var(--yellow); border-color: rgba(255,214,0,0.35); background: rgba(255,214,0,0.08); }
+  .src-badge.backfill { color: #b388ff; border-color: rgba(179,136,255,0.35); background: rgba(179,136,255,0.08); }
+  .src-note {
+    font-size: 11px; color: var(--yellow); margin-bottom: 14px;
+    display: none;
+  }
+  .src-note.info { color: #b388ff; }
+
   /* ---- Tab Nav ---- */
   .tab-nav {
     display: flex; gap: 0;
@@ -288,6 +314,13 @@
 <div class="tab-content active" id="tab-moza">
 <div class="container">
 
+  <div class="control-bar">
+    <label for="weekSelect">查看周次</label>
+    <select id="weekSelect"></select>
+    <span class="src-badge" id="srcBadge">--</span>
+  </div>
+  <div class="src-note" id="mockNote">⚠️ 部分周次为示例数据（未抓取到真实数据），趋势图中以虚线区分。</div>
+
   <div class="summary-banner">
     <h3>📊 本周舆情综述 <span id="mozaWeekRange" style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:8px;"></span></h3>
     <p id="summaryText">加载中...</p>
@@ -343,6 +376,18 @@
     <p id="compSummaryText">加载中...</p>
   </div>
 
+  <div class="control-bar">
+    <label for="compWeekSelect">查看周次</label>
+    <select id="compWeekSelect"></select>
+    <span class="src-badge" id="compSrcBadge">--</span>
+  </div>
+
+  <div class="panel" style="margin-bottom:18px;">
+    <h3>📈 竞品提及量趋势</h3>
+    <div class="chart-wrap" style="height:280px;"><canvas id="compTrendChart"></canvas></div>
+    <p id="compTrendHint" style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px;"></p>
+  </div>
+
   <div class="kpi-grid" id="compKpiGrid"></div>
 
   <div class="comp-grid" id="compGrid"></div>
@@ -351,20 +396,31 @@
 </div>
 
 <div class="footer">
-  MOZA Brand Sentiment & Competitor Monitor · 数据来源: Google News / Bing News / Reddit / TraxionGG / GTPlanet / SimRacing604 · 每周自动更新
+  MOZA Brand Sentiment & Competitor Monitor · 数据来源: Google News / Bing News / Reddit / TraxionGG / GTPlanet / SimRacing604 / BoxThisLap / iRacing / Studio-397 · 每周自动更新
 </div>
 
 <!-- ====== SCRIPTS ====== -->
 <script>
 // ---- State ----
-let reports = [], currentReportId = null;
-let trendChart = null, sentimentChart = null;
-let compData = [], compSummary = "";
+let history = [];            // lightweight weekly series from /api/history
+let currentReportId = null;
+let trendChart = null, sentimentChart = null, compTrendChart = null;
+let compData = [], compSummary = "", compHistory = [];
 
 const $ = (sel) => document.querySelector(sel);
 const fmt = (n) => n != null ? Number(n).toLocaleString() : "--";
 const cls = (v) => v > 0 ? "up" : v < 0 ? "down" : "neutral";
 const arrow = (v) => v > 0 ? "↑" : v < 0 ? "↓" : "→";
+
+// Provenance of each stored week. "backfill" = reconstructed from the crawl
+// run notes (count + sentiment only, no itemised detail).
+const SOURCE_META = {
+  real:     { label: "真实数据", short: "真实", color: "#00c2ff", tip: "本周由爬虫实时抓取入库" },
+  backfill: { label: "回填数据", short: "回填", color: "#b388ff", tip: "由历史执行记录回填（周次边界按运行日期推断，仅计数与情感分布）" },
+  mock:     { label: "示例数据", short: "示例", color: "#ffd600", tip: "预置示例数据，非真实抓取" },
+};
+const srcOf = (h) => (SOURCE_META[(h || {}).data_source] ? h.data_source : "real");
+const srcColor = (h) => SOURCE_META[srcOf(h)].color;
 
 // ---- Tab switching ----
 document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -435,6 +491,14 @@ function renderMozaReport(report) {
 
   $("#mozaWeekRange").textContent = (r.week_start || "--") + " ~ " + (r.week_end || "--");
   $("#dataWeekBadge").textContent = "数据周次: " + (r.week_start || "--") + " ~ " + (r.week_end || "--");
+
+  // Data-source indicator (real / backfilled from records / sample)
+  const src = SOURCE_META[r.data_source] ? r.data_source : (r.data_source === "mock" ? "mock" : "real");
+  const badge = $("#srcBadge");
+  badge.textContent = SOURCE_META[src].label;
+  badge.className = "src-badge " + src;
+  badge.title = SOURCE_META[src].tip;
+
   updateTrendChart();
   updateSentimentChart(r);
 }
@@ -442,22 +506,43 @@ function renderMozaReport(report) {
 function updateTrendChart() {
   if (typeof Chart === "undefined") { console.warn("Chart.js not loaded"); return; }
   try {
-    const labels = reports.slice().reverse().map(r => (r.week_start || "").slice(5) + "~" + (r.week_end || "").slice(5));
-    const data = reports.slice().reverse().map(r => r.mention_count);
-    if (trendChart) trendChart.destroy();
     const hintEl = document.getElementById("trendHint");
-    if (reports.length <= 1) {
+    const labels = history.map(h => (h.week_start || "").slice(5) + "~" + (h.week_end || "").slice(5));
+    const data = history.map(h => h.mention_count);
+    if (trendChart) trendChart.destroy();
+
+    const counts = { real: 0, backfill: 0, mock: 0 };
+    history.forEach(h => { counts[srcOf(h)] += 1; });
+    if (history.length <= 1) {
       hintEl.textContent = "📌 首周数据，趋势将在后续周次更新后累积展示";
     } else {
-      hintEl.textContent = "共 " + reports.length + " 周数据 · 每周一更新";
+      hintEl.textContent = "共 " + history.length + " 周数据 · 真实 " + counts.real +
+        (counts.backfill ? " · 回填 " + counts.backfill : "") +
+        (counts.mock ? " · 示例 " + counts.mock : "") + " · 每周一更新";
     }
+    const noteEl = document.getElementById("mockNote");
+    const parts = [];
+    if (counts.backfill) parts.push("回填 " + counts.backfill + " 周（由历史执行记录还原，仅计数与情感分布，点标记为紫色）");
+    if (counts.mock) parts.push("示例 " + counts.mock + " 周（非真实抓取）");
+    noteEl.textContent = parts.length ? "ℹ️ " + parts.join("；") + "。" : "";
+    noteEl.className = "src-note" + (counts.backfill && !counts.mock ? " info" : "");
+    noteEl.style.display = parts.length ? "block" : "none";
+
+    // Colour each point by provenance; ring the week currently shown above.
+    const pointBg = history.map(h => srcColor(h));
+    const pointBorder = history.map(h => (h.id === currentReportId ? "#ffffff" : "#1a1d2e"));
+    const pointRadius = history.map(h => (h.id === currentReportId ? 8 : 4.5));
+
     const ctx = document.getElementById("trendChart").getContext("2d");
     trendChart = new Chart(ctx, {
-    type: "line", data: { labels, datasets: [{ label: "提及量", data, borderColor: "#00c2ff", backgroundColor: "rgba(0,194,255,0.08)", borderWidth: 2.5, fill: true, tension: 0.4, pointRadius: 5, pointBackgroundColor: "#00c2ff", pointBorderColor: "#1a1d2e", pointBorderWidth: 2, pointHoverRadius: 7 }] },
+    type: "line", data: { labels, datasets: [{ label: "提及量", data, borderColor: "#00c2ff", backgroundColor: "rgba(0,194,255,0.08)", borderWidth: 2.5, fill: true, tension: 0.35, pointRadius: pointRadius, pointBackgroundColor: pointBg, pointBorderColor: pointBorder, pointBorderWidth: 2, pointHoverRadius: 9 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { backgroundColor: "#1a1d2e", titleColor: "#e4e6f0", bodyColor: "#00c2ff", borderColor: "#2a2f45", borderWidth: 1, padding: 12, callbacks: { label: (ctx) => "提及量: " + fmt(ctx.raw) } } },
-      scales: { x: { ticks: { color: "#8890b5", font: { size: 11 } }, grid: { color: "rgba(42,47,69,0.4)" }, border: { color: "#2a2f45" } }, y: { ticks: { color: "#8890b5", font: { size: 11 }, callback: v => fmt(v) }, grid: { color: "rgba(42,47,69,0.4)" }, border: { color: "#2a2f45" }, beginAtZero: false } },
+      plugins: { legend: { display: false }, tooltip: { backgroundColor: "#1a1d2e", titleColor: "#e4e6f0", bodyColor: "#00c2ff", borderColor: "#2a2f45", borderWidth: 1, padding: 12, callbacks: {
+        label: (ctx) => "提及量: " + fmt(ctx.raw),
+        afterLabel: (ctx) => "数据源: " + SOURCE_META[srcOf(history[ctx.dataIndex])].short,
+      } } },
+      scales: { x: { ticks: { color: "#8890b5", font: { size: 11 } }, grid: { color: "rgba(42,47,69,0.4)" }, border: { color: "#2a2f45" } }, y: { ticks: { color: "#8890b5", font: { size: 11 }, callback: v => fmt(v) }, grid: { color: "rgba(42,47,69,0.4)" }, border: { color: "#2a2f45" }, beginAtZero: true } },
       interaction: { mode: "index", intersect: false }
     }
   });
@@ -493,37 +578,53 @@ function renderCompetitors() {
   // Week range
   const ws = compData[0].week_start || "--";
   const we = compData[0].week_end || "--";
+  const hasDetail = compData.some(c => (c.updates || []).length > 0);
 
-  // Summary
+  // Summary — backfilled weeks carry a count-only note instead of a narrative.
   $("#compSummaryText").textContent = compSummary || "暂无本周竞品综述";
   document.querySelector(".comp-summary-banner p").style.minHeight = "auto";
 
-  // KPI: count per competitor
+  // Source badge for the selected competitor week
+  const hist = compHistory.find(h => h.week_start === ws);
+  const s = srcOf(hist || {});
+  const badge = document.getElementById("compSrcBadge");
+  if (badge) {
+    badge.textContent = SOURCE_META[s].label;
+    badge.className = "src-badge " + s;
+    badge.title = SOURCE_META[s].tip;
+  }
+
+  // KPI: mention count per competitor (falls back to detail-row count)
   let kpiHtml = "";
+  let grandTotal = 0;
   compData.forEach(c => {
+    const total = (c.mention_count != null ? c.mention_count : (c.updates || []).length);
+    grandTotal += total;
     const pos = c.updates.filter(u => u.sentiment === "positive").length;
     const neu = c.updates.filter(u => u.sentiment === "neutral").length;
     const neg = c.updates.filter(u => u.sentiment === "negative").length;
-    const total = c.updates.length;
+    const sentLine = hasDetail
+      ? `<span class="st-p" style="color:var(--positive);">😊 ${pos}</span>
+         <span class="st-n" style="color:var(--neutral);">😐 ${neu}</span>
+         <span class="st-e" style="color:var(--negative);">😟 ${neg}</span>`
+      : `<span class="st-n" style="color:var(--text-muted);">仅计数（无情感明细）</span>`;
     kpiHtml += `<div class="kpi-card">
       <div class="kpi-label"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${c.color};margin-right:6px;"></span>${c.name}</div>
       <div class="kpi-value" style="font-size:24px;">${total}</div>
-      <div class="kpi-change neutral">
-        <span class="st-p" style="color:var(--positive);">😊 ${pos}</span>
-        <span class="st-n" style="color:var(--neutral);">😐 ${neu}</span>
-        <span class="st-e" style="color:var(--negative);">😟 ${neg}</span>
-      </div>
+      <div class="kpi-change neutral">${sentLine}</div>
     </div>`;
   });
   document.getElementById("compKpiGrid").innerHTML = `<div class="kpi-card">
     <div class="kpi-label">监控周期</div>
     <div class="kpi-value" style="font-size:20px;">${ws} ~ ${we}</div>
-    <div class="kpi-change neutral">6家竞品 · ${compData.reduce((s,c) => s + c.updates.length, 0)}条动态</div>
+    <div class="kpi-change neutral">6家竞品 · ${grandTotal}条提及</div>
   </div>` + kpiHtml;
 
   // Competitor cards
   let gridHtml = "";
   compData.forEach(c => {
+    const total = (c.mention_count != null ? c.mention_count : (c.updates || []).length);
+
     // Group by category
     const groups = {};
     c.updates.forEach(u => {
@@ -535,30 +636,42 @@ function renderCompetitors() {
       <div class="comp-header">
         <div class="comp-color" style="background:${c.color};"></div>
         <div class="comp-name">${c.name}</div>
-        <div class="comp-stats"><span class="st-p">😊${c.updates.filter(u=>u.sentiment==='positive').length}</span> <span class="st-n">😐${c.updates.filter(u=>u.sentiment==='neutral').length}</span> <span class="st-e">😟${c.updates.filter(u=>u.sentiment==='negative').length}</span></div>
+        <div class="comp-stats">${hasDetail
+          ? `<span class="st-p">😊${c.updates.filter(u=>u.sentiment==='positive').length}</span> <span class="st-n">😐${c.updates.filter(u=>u.sentiment==='neutral').length}</span> <span class="st-e">😟${c.updates.filter(u=>u.sentiment==='negative').length}</span>`
+          : `<span class="st-n">提及 ${total}</span>`}</div>
       </div>
       <div class="comp-body">`;
 
-    // Render in order: product_change, community_feedback, business_movement
-    const order = ["product_change", "community_feedback", "business_movement"];
-    order.forEach(cat => {
-      const items = groups[cat];
-      if (!items || !items.length) return;
-      const meta = CAT_LABELS[cat] || { icon: "📌", label: cat };
-      gridHtml += `<div class="comp-section">
-        <div class="comp-section-title"><span class="cat-icon">${meta.icon}</span>${meta.label}</div>`;
-      items.forEach(u => {
-        const sc = u.sentiment === "positive" ? "s-p" : u.sentiment === "negative" ? "s-e" : "s-n";
-        gridHtml += `<div class="comp-item">
-          <div class="comp-sent-dot ${sc}"></div>
-          <div class="comp-item-content">
-            <div>${u.content}</div>
-            <div class="comp-item-source">来源: ${u.source || ""}</div>
-          </div>
-        </div>`;
+    if (!hasDetail) {
+      gridHtml += `<div class="comp-section"><div class="comp-item">
+        <div class="comp-sent-dot s-n"></div>
+        <div class="comp-item-content">
+          <div>本周 ${c.name} 相关提及 ${total} 条（回填周次，仅保留计数，未留存条目明细）</div>
+          <div class="comp-item-source">来源: 历史执行记录</div>
+        </div>
+      </div></div>`;
+    } else {
+      // Render in order: product_change, community_feedback, business_movement
+      const order = ["product_change", "community_feedback", "business_movement"];
+      order.forEach(cat => {
+        const items = groups[cat];
+        if (!items || !items.length) return;
+        const meta = CAT_LABELS[cat] || { icon: "📌", label: cat };
+        gridHtml += `<div class="comp-section">
+          <div class="comp-section-title"><span class="cat-icon">${meta.icon}</span>${meta.label}</div>`;
+        items.forEach(u => {
+          const sc = u.sentiment === "positive" ? "s-p" : u.sentiment === "negative" ? "s-e" : "s-n";
+          gridHtml += `<div class="comp-item">
+            <div class="comp-sent-dot ${sc}"></div>
+            <div class="comp-item-content">
+              <div>${u.content}</div>
+              <div class="comp-item-source">来源: ${u.source || ""}</div>
+            </div>
+          </div>`;
+        });
+        gridHtml += `</div>`;
       });
-      gridHtml += `</div>`;
-    });
+    }
 
     gridHtml += `</div></div>`;
   });
@@ -566,21 +679,178 @@ function renderCompetitors() {
   document.getElementById("compGrid").innerHTML = gridHtml;
 }
 
+// ---- Competitor week selector ----
+function buildCompWeekSelector() {
+  const sel = document.getElementById("compWeekSelect");
+  if (!sel) return;
+  sel.innerHTML = "";
+  compHistory.slice().reverse().forEach(h => {
+    const opt = document.createElement("option");
+    const s = srcOf(h);
+    opt.value = h.week_start;
+    opt.textContent = h.week_start + " ~ " + h.week_end +
+      (s === "real" ? "" : "（" + SOURCE_META[s].short + "）") +
+      (h.has_detail ? "" : " · 仅计数");
+    sel.appendChild(opt);
+  });
+  sel.onchange = () => loadCompetitorWeek(sel.value);
+}
+
+async function loadCompetitorWeek(weekStart) {
+  const res = await fetch("/api/competitors?week=" + encodeURIComponent(weekStart));
+  compData = await res.json();
+  const sumRes = await fetch("/api/competitors/summary?week=" + encodeURIComponent(weekStart));
+  compSummary = (await sumRes.json()).summary || "";
+  renderCompetitors();
+}
+
+// ===================== Competitor trend =====================
+const FALLBACK_COLORS = ["#f5a623", "#00c2ff", "#e53935", "#7c4dff", "#00e676", "#ff6d00", "#ff4081"];
+
+function renderCompetitorTrend() {
+  if (typeof Chart === "undefined") { console.warn("Chart.js not loaded"); return; }
+  const hintEl = document.getElementById("compTrendHint");
+  if (!compHistory.length) {
+    hintEl.textContent = "暂无竞品趋势数据";
+    return;
+  }
+  try {
+    const labels = compHistory.map(h => (h.week_start || "").slice(5) + "~" + (h.week_end || "").slice(5));
+
+    // Union of brands across all weeks, in a stable (descending volume) order.
+    const brandTotals = {};
+    compHistory.forEach(h => {
+      Object.entries(h.brands || {}).forEach(([b, n]) => {
+        brandTotals[b] = (brandTotals[b] || 0) + (n || 0);
+      });
+    });
+    const brands = Object.keys(brandTotals).sort((a, b) => brandTotals[b] - brandTotals[a]);
+
+    const colorMap = {};
+    compData.forEach(c => { colorMap[c.name] = c.color; });
+    brands.forEach((b, i) => {
+      if (!colorMap[b]) colorMap[b] = FALLBACK_COLORS[i % FALLBACK_COLORS.length];
+    });
+
+    const datasets = brands.map(b => ({
+      label: b,
+      data: compHistory.map(h => (h.brands || {})[b] || 0),
+      borderColor: colorMap[b],
+      backgroundColor: colorMap[b],
+      borderWidth: 2,
+      tension: 0.35,
+      pointRadius: 3.5,
+      pointHoverRadius: 6,
+    }));
+    // Total line drawn a touch heavier so the aggregate stands out.
+    datasets.unshift({
+      label: "合计",
+      data: compHistory.map(h => h.total || 0),
+      borderColor: "#8890b5",
+      backgroundColor: "rgba(136,144,181,0.12)",
+      borderWidth: 2,
+      borderDash: [6, 4],
+      tension: 0.35,
+      pointRadius: 0,
+      fill: false,
+    });
+
+    if (compTrendChart) compTrendChart.destroy();
+    const backfillWeeks = compHistory.filter(h => h.data_source === "backfill" && !h.has_detail).length;
+    hintEl.textContent = "共 " + compHistory.length + " 周数据 · " + brands.length + " 家竞品" +
+      (backfillWeeks ? " · 其中 " + backfillWeeks + " 周为回填（仅计数）" : "");
+
+    const ctx = document.getElementById("compTrendChart").getContext("2d");
+    compTrendChart = new Chart(ctx, {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom", labels: { color: "#8890b5", boxWidth: 12, padding: 12, font: { size: 11 }, usePointStyle: true } },
+          tooltip: {
+            backgroundColor: "#1a1d2e", titleColor: "#e4e6f0", bodyColor: "#e4e6f0",
+            borderColor: "#2a2f45", borderWidth: 1, padding: 12,
+            callbacks: {
+              afterBody: (items) => {
+                const h = compHistory[items[0].dataIndex] || {};
+                return "数据源: " + SOURCE_META[srcOf(h)].short;
+              },
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { color: "#8890b5", font: { size: 11 } }, grid: { color: "rgba(42,47,69,0.4)" }, border: { color: "#2a2f45" } },
+          y: { beginAtZero: true, ticks: { color: "#8890b5", font: { size: 11 }, precision: 0 }, grid: { color: "rgba(42,47,69,0.4)" }, border: { color: "#2a2f45" } },
+        },
+        interaction: { mode: "index", intersect: false },
+      },
+    });
+  } catch (e) {
+    console.error("Competitor trend chart render error:", e);
+  }
+}
+
 // ===================== Init =====================
+function buildWeekSelector() {
+  const sel = document.getElementById("weekSelect");
+  sel.innerHTML = "";
+  // Newest first in the dropdown, but trend/history stays oldest-first
+  history.slice().reverse().forEach(h => {
+    const opt = document.createElement("option");
+    const s = srcOf(h);
+    opt.value = h.id;
+    opt.textContent = h.week_start + " ~ " + h.week_end +
+      (s === "real" ? "" : "（" + SOURCE_META[s].short + "）");
+    sel.appendChild(opt);
+  });
+  sel.onchange = () => loadWeekDetail(Number(sel.value));
+}
+
+async function loadWeekDetail(reportId) {
+  const res = await fetch("/api/reports/" + reportId);
+  const detail = await res.json();
+  const meta = history.find(h => h.id === reportId) || {};
+
+  // Recompute week-over-week change from the series (server only stores 0).
+  // Compare across real + backfilled weeks; skip sample weeks so a placeholder
+  // never masquerades as a real swing.
+  const idx = history.findIndex(h => h.id === reportId);
+  let mc = 0;
+  if (idx > 0) {
+    const cur = history[idx], prev = history[idx - 1];
+    if (srcOf(cur) !== "mock" && srcOf(prev) !== "mock" && prev.mention_count > 0) {
+      mc = Math.round((cur.mention_count - prev.mention_count) / prev.mention_count * 1000) / 10;
+    }
+  }
+
+  renderMozaReport({
+    ...meta,
+    ...(detail.report || {}),
+    mention_change: mc,
+    topics: detail.topics || [],
+    risks: detail.risks || [],
+    sentiments: detail.sentiments || [],
+    actions: detail.actions || [],
+  });
+}
+
 async function init() {
   let hasError = false;
 
-  // --- MOZA reports ---
+  // --- MOZA history (all weeks) + latest detail ---
   try {
-    const rawRes = await fetch("/api/reports");
-    const rawReports = await rawRes.json();
-    reports = [];
-    for (const rr of rawReports) {
-      const detailRes = await fetch("/api/reports/" + rr.id);
-      const detail = await detailRes.json();
-      reports.push({ ...rr, topics: detail.topics || [], risks: detail.risks || [], sentiments: detail.sentiments || [], actions: detail.actions || [] });
+    const histRes = await fetch("/api/history");
+    history = await histRes.json();
+    if (history.length > 0) {
+      buildWeekSelector();
+      const latest = history[history.length - 1];
+      document.getElementById("weekSelect").value = latest.id;
+      await loadWeekDetail(latest.id);
+    } else {
+      $("#summaryText").textContent = "暂无 MOZA 舆情数据。";
+      document.getElementById("mockNote").style.display = "none";
     }
-    if (reports.length > 0) renderMozaReport(reports[0]);
   } catch (e) {
     console.error("MOZA data load error:", e);
     $("#summaryText").textContent = "MOZA 舆情数据加载失败，请稍后刷新。";
@@ -589,12 +859,23 @@ async function init() {
 
   // --- Competitors ---
   try {
+    const chRes = await fetch("/api/competitors/history");
+    compHistory = await chRes.json();
+
     const compRes = await fetch("/api/competitors");
     compData = await compRes.json();
-    const sumRes = await fetch("/api/competitors/summary");
+    const curWeek = compData[0] && compData[0].week_start;
+    const sumRes = await fetch("/api/competitors/summary" +
+      (curWeek ? "?week=" + encodeURIComponent(curWeek) : ""));
     const sumData = await sumRes.json();
     compSummary = sumData.summary || "";
+
+    if (compHistory.length) {
+      buildCompWeekSelector();
+      if (curWeek) document.getElementById("compWeekSelect").value = curWeek;
+    }
     if (compData.length > 0) renderCompetitors();
+    renderCompetitorTrend();
   } catch (e) {
     console.error("Competitor data load error:", e);
     $("#compSummaryText").textContent = "竞品数据加载失败，请稍后刷新。";
@@ -602,13 +883,16 @@ async function init() {
   }
 
   // Only update badge from competitor data if MOZA data didn't set it
-  if (!reports.length && compData.length > 0) {
+  if (!history.length && compData.length > 0) {
     $("#dataWeekBadge").textContent = "数据周次: " + (compData[0].week_start || "--") + " ~ " + (compData[0].week_end || "--");
   }
   if (hasError) {
     $("#dataWeekBadge").textContent += " · ⚠️ 部分数据加载失败";
   }
 }
+
+// Expose for debugging from the browser console
+window.loadWeekDetail = loadWeekDetail;
 
 init();
 </script>
