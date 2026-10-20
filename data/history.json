@@ -146,6 +146,76 @@
       "risks": [],
       "sentiments": [],
       "actions": []
+    },
+    "2026-10-19": {
+      "week_start": "2026-10-19",
+      "week_end": "2026-10-25",
+      "overall_summary": "本周 MOZA 舆情共监测到 36 条提及，来源包括 Bing News、Google News、Reddit、SimRacingSetup、TraxionGG。整体情绪偏向正面，正面占比 75%，中性占比 25%，负面占比 0%。本周最热门话题为\"New P-ACTIVE active pedal added to Simagic’s SimRacing Expo Frankfurt line\"。社区整体反馈积极，品牌口碑良好。",
+      "mention_count": 36,
+      "mention_change": 0,
+      "positive_pct": 75,
+      "neutral_pct": 25,
+      "negative_pct": 0,
+      "topics": [
+        {
+          "rank": 1,
+          "topic": "New P-ACTIVE active pedal added to Simagic’s SimRacing Expo Frankfurt line",
+          "summary": "Simagic has unveiled its first active pedal, the P-ACTIVE, which will be available to sample at this weekend's SimRacing Expo Frankfurt alongside officially licensed Aston Martin..."
+        },
+        {
+          "rank": 2,
+          "topic": "Simagic Aston Martin Valkyrie Steering Wheel review: Premium materials, premium experience",
+          "summary": "We've tested Simagic's new Aston Martin Valkyrie Steering Wheel, a premium replica of the road-going Hypercar's. The post Simagic Aston Martin Valkyrie Steering Wheel review:..."
+        },
+        {
+          "rank": 3,
+          "topic": "Moza set to bring its biggest-ever product showcase to SimRacing Expo Frankfurt, including PS5 wheelbases",
+          "summary": "Moza set to bring its biggest-ever product showcase to SimRacing Expo Frankfurt, including PS5 wheelbases Traxion.GG"
+        },
+        {
+          "rank": 4,
+          "topic": "Moza set to bring its biggest-ever product showcase to SimRacing Expo Frankfurt, including PS5 wheelbases",
+          "summary": "Moza is set to showcase its latest MotoGP motorcycle handlebar controller and PS5-compatible wheelbases at this weekend's SimRacing Expo Frankfurt."
+        },
+        {
+          "rank": 5,
+          "topic": "Track Titan partners with FIA for sim racing and esports driver development",
+          "summary": "After partnering with Moza, the sim racing coaching platform Track Titan is now working with the FIA. The post Track Titan partners with FIA for sim racing and esports driver..."
+        }
+      ],
+      "risks": [
+        {
+          "level": "green",
+          "content": "本周舆情整体健康，负面讨论占比处于低位",
+          "source": "全渠道监控"
+        }
+      ],
+      "sentiments": [
+        {
+          "sentiment": "positive",
+          "viewpoint": "Anybody else love sim racing rigs with arcade racing games? I feel like a bit of an imposter here, so just curious if there's more like me out there. I love sim racing hardware, the rig, constantly...",
+          "source": "Reddit"
+        },
+        {
+          "sentiment": "neutral",
+          "viewpoint": "Simagic Aston Martin Valkyrie Steering Wheel review: Premium materials, premium experience We've tested Simagic's new Aston Martin Valkyrie Steering Wheel, a premium replica of the road-going...",
+          "source": "TraxionGG"
+        },
+        {
+          "sentiment": "positive",
+          "viewpoint": "Thrustmaster T598 vs. Logitech RS50 McLaren Bundle? Hey guys, I am currently sitting in the Thrustmaster eco system and so far I was liking it, but the disconnects of the wheelbase / wheel started to...",
+          "source": "Reddit"
+        }
+      ],
+      "actions": [
+        {
+          "action_text": "借助\"New P-ACTIVE active pedal added to Simagic’s SimRacing Expo Frankfurt line\"的正面热度，在社交媒体加大传播力度，扩大品牌声量"
+        },
+        {
+          "action_text": "关注竞品在相关话题中的动向，及时调整市场策略"
+        }
+      ],
+      "data_source": "real"
     }
   },
   "competitors": {
@@ -253,6 +323,116 @@
         "VIRPIL": 0
       },
       "data": {}
+    },
+    "2026-10-19": {
+      "week_start": "2026-10-19",
+      "week_end": "2026-10-25",
+      "summary": "本周竞品动态：Fanatec本周动态平稳，主要动态：Simagic Aston Martin Valkyrie Steering Wheel review: Premium materials, premium ；Simagic本周社区反馈偏正面，主要动态：SIMAGIC Reveals Aston Martin Valkyrie and KTM X-Bow GT2 Wheels - BoxThisLap SIMA；Thrustmaster本周社区反馈偏正面，主要动态：Simagic Aston Martin Valkyrie Steering Wheel review: Premium materials, premium ；PXN本周动态平稳，主要动态：Forza EmuWheel refuses to hear my buttons Hey everybody! I'm struggling to confi；WINCTRL本周暂无显著公开动态；VIRPIL本周暂无显著公开动态。MOZA 需持续关注竞品产品发布和社区反馈，保持竞争力。",
+      "data_source": "real",
+      "counts": {
+        "Fanatec": 4,
+        "Simagic": 4,
+        "Thrustmaster": 2,
+        "PXN": 4,
+        "WINCTRL": 0,
+        "VIRPIL": 0
+      },
+      "data": {
+        "Fanatec": [
+          [
+            "product_change",
+            "Simagic Aston Martin Valkyrie Steering Wheel review: Premium materials, premium experience We've tested Simagic's new Aston Martin Valkyrie Steering Wheel, a premium replica of the road-going...",
+            "TraxionGG",
+            "neutral"
+          ],
+          [
+            "product_change",
+            "Recaro to attend SimRacing Expo Frankfurt with Team Manthey Car seat manufacturer Recaro will launch its 'RECARO SIM concept' at this weekend's SimRacing Expo Frankfurt, exhibiting alongside Manthey....",
+            "TraxionGG",
+            "neutral"
+          ],
+          [
+            "community_feedback",
+            "Trak Racer enters budget sim wheel market with Fanatec-based equipment - Traxion.GG Trak Racer enters budget sim wheel market with Fanatec",
+            "Traxion.GG",
+            "neutral"
+          ],
+          [
+            "community_feedback",
+            "Trak Racer enters budget sim wheel market with Fanatec-based equipment Trak Racer has announced its intention to enter the sim racing wheel and pedal market in 2027, with a Fanatec-based entry-level...",
+            "Bing News",
+            "neutral"
+          ]
+        ],
+        "Simagic": [
+          [
+            "community_feedback",
+            "SIMAGIC Reveals Aston Martin Valkyrie and KTM X-Bow GT2 Wheels - BoxThisLap SIMAGIC Reveals Aston Martin Valkyrie and KTM X",
+            "BoxThisLap",
+            "neutral"
+          ],
+          [
+            "community_feedback",
+            "SIMAGIC P-ACTIVE Active Pedal Revealed for $999 - BoxThisLap SIMAGIC P-ACTIVE Active Pedal Revealed for $999 BoxThisLap",
+            "BoxThisLap",
+            "positive"
+          ],
+          [
+            "product_change",
+            "New P-ACTIVE active pedal added to Simagic’s SimRacing Expo Frankfurt line-up - Traxion.GG New P-ACTIVE active pedal added to Simagic’s SimRacing Expo Frankfurt line",
+            "Traxion.GG",
+            "positive"
+          ],
+          [
+            "product_change",
+            "Simagic reveals authentic KTM Xbow GT2 steering wheel, public debut set for SimRacing Expo Frankfurt - Traxion.GG Simagic reveals authentic KTM Xbow GT2 steering wheel, public debut set for SimRacing...",
+            "Traxion.GG",
+            "neutral"
+          ]
+        ],
+        "Thrustmaster": [
+          [
+            "product_change",
+            "Simagic Aston Martin Valkyrie Steering Wheel review: Premium materials, premium experience We've tested Simagic's new Aston Martin Valkyrie Steering Wheel, a premium replica of the road-going...",
+            "TraxionGG",
+            "neutral"
+          ],
+          [
+            "product_change",
+            "Gran Turismo 7 Spec IV update Part 1: Everything you need to know The first part of Gran Turismo 7's Spec IV update is out now, featuring six new cars, one new track and several interesting new...",
+            "TraxionGG",
+            "positive"
+          ]
+        ],
+        "PXN": [
+          [
+            "community_feedback",
+            "Forza EmuWheel refuses to hear my buttons Hey everybody! I'm struggling to configure Forza EmuWheel with my PXN wheel. Forza EmuWheel correctly detects the wheel, pedals, and USB handbrake, but...",
+            "Reddit",
+            "negative"
+          ],
+          [
+            "community_feedback",
+            "I need help with my pxn v99 and my pc Hi, so I have an old PC. So I can't run every Rally games. The PC is a Lenovo y510p. So finding games for it can be hard. I also have a pxn v99, and this wheel...",
+            "Reddit",
+            "positive"
+          ],
+          [
+            "product_change",
+            "Pxn or Moza dd wheel. What to take? Hello all, i am looking for upgrading my T150 for a DD wheel. Doubting for a PXN V10 ultra or VD4 or a Moza R3 bundle. Are there people here who use a PXN wheel?...",
+            "Reddit",
+            "positive"
+          ],
+          [
+            "product_change",
+            "PXN VD6 startup calibration — is my wheelbase behaving normally or is it defective? Hi everyone, I have a PXN VD6 direct drive wheelbase with a GT ONE steering wheel and PD HM pedals, and I’m trying...",
+            "Reddit",
+            "negative"
+          ]
+        ],
+        "WINCTRL": [],
+        "VIRPIL": []
+      }
     }
   }
 }

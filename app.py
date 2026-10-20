@@ -988,9 +988,17 @@ def api_history_sync():
     if not isinstance(comps, list):
         return jsonify({"error": "'competitors' must be a list"}), 400
 
-    synced = 0
-    comp_weeks = 0
-    pruned = 0
+    stats = _apply_history_sync(reports, comps, prune_mock=bool(data.get("prune_mock")))
+    return jsonify({"status": "ok", **stats})
+
+
+def _apply_history_sync(reports, comps, prune_mock=False):
+    """Shared body of /api/history/sync (also used by the boot-time rehydrate).
+
+    Kept as a plain function so the startup path can restore the ledger without
+    going through an HTTP request.
+    """
+    synced = comp_weeks = pruned = 0
     with db_conn() as conn:
         for rep in reports:
             if not rep.get("week_start") or not rep.get("week_end"):
@@ -998,7 +1006,7 @@ def api_history_sync():
             _upsert_weekly_report(conn, {**rep, "data_source": rep.get("data_source", "real")})
             synced += 1
 
-        if data.get("prune_mock"):
+        if prune_mock:
             keep = {r["week_start"] for r in reports
                     if r.get("week_start") and r.get("week_end")}
             rows = conn.execute(
@@ -1040,8 +1048,8 @@ def api_history_sync():
             )
             comp_weeks += 1
 
-    return jsonify({"status": "ok", "reports_synced": synced,
-                    "competitor_weeks_synced": comp_weeks, "mock_pruned": pruned})
+    return {"reports_synced": synced, "competitor_weeks_synced": comp_weeks,
+            "mock_pruned": pruned}
 
 
 @app.route("/api/competitors/summary")
@@ -1267,6 +1275,41 @@ init_db()
 SKIP_AUTOSEED = os.environ.get("SENTIMENT_SKIP_AUTOSEED") == "1"
 
 
+def _rehydrate_from_ledger():
+    """Restore the full history from the committed ledger on startup.
+
+    WHY: Render's free tier has an ephemeral filesystem — every restart/redeploy
+    wipes data/sentiment.db. The ledger (data/history.json) is committed to git,
+    so it survives and can rebuild the whole trend series on boot. Without this,
+    history only comes back when the local scraper happens to run.
+    """
+    ledger_path = Path(os.environ.get("SENTIMENT_LEDGER_PATH")
+                       or (BASE_DIR / "data" / "history.json"))
+    if not ledger_path.exists():
+        app.logger.info("[Rehydrate] No ledger at %s, skipping", ledger_path)
+        return
+    try:
+        with open(ledger_path, encoding="utf-8") as f:
+            ledger = json.load(f)
+        raw_reports = ledger.get("reports") or {}
+        raw_comps = ledger.get("competitors") or {}
+        # Ledger stores weeks as dicts keyed by week_start; sync expects lists.
+        reports = [raw_reports[k] for k in sorted(raw_reports)] \
+            if isinstance(raw_reports, dict) else list(raw_reports)
+        comps = [raw_comps[k] for k in sorted(raw_comps)] \
+            if isinstance(raw_comps, dict) else list(raw_comps)
+        if not reports:
+            app.logger.info("[Rehydrate] Ledger empty, skipping")
+            return
+        stats = _apply_history_sync(reports, comps, prune_mock=True)
+        app.logger.info("[Rehydrate] Restored %d report-weeks / %d competitor-weeks "
+                        "from ledger (pruned %d mock)",
+                        stats["reports_synced"], stats["competitor_weeks_synced"],
+                        stats["mock_pruned"])
+    except Exception as e:
+        app.logger.error("[Rehydrate] Failed: %s", e)
+
+
 def _bg_seed_data():
     """Run data seeding in a background thread so the web server starts
     listening immediately.  The crawler may take 30-60s on Render; running
@@ -1274,6 +1317,8 @@ def _bg_seed_data():
     timeouts.
     """
     try:
+        # Rehydrate FIRST so the seeded placeholder week can't shadow real data.
+        _rehydrate_from_ledger()
         seed_mock_data()
         seed_competitor_mock_data()
     except Exception as e:
